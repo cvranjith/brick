@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocketServer } from 'ws';
@@ -41,7 +42,16 @@ function makeZdotdir(origZdotdir) {
   return dir;
 }
 
-export function startServer({ port = 4477, host = '127.0.0.1', shell = process.env.SHELL || '/bin/zsh', cwd = os.homedir() } = {}) {
+// Screenshot of the desktop as JPEG bytes (macOS `screencapture`; needs Screen Recording permission for the terminal that runs this).
+async function captureDesktop() {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brick-shot-')), 'desktop.jpg');
+  try {
+    await new Promise((resolve, reject) => execFile('screencapture', ['-x', '-t', 'jpg', file], { timeout: 15000 }, (err, _o, stderr) => (err ? reject(new Error(stderr || err.message)) : resolve())));
+    return fs.readFileSync(file);   // throws if nothing was written (permission denied)
+  } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }   // the picture is never kept on disk
+}
+
+export function startServer({ port = 4477, host = '127.0.0.1', shell = process.env.SHELL || '/bin/zsh', cwd = os.homedir(), capture = captureDesktop } = {}) {
   const token = crypto.randomBytes(16).toString('hex');
   let nextSession = 1;   // each WebSocket (tab/pane) is its own shell with its own session id
   let allowedHosts = [];
@@ -49,12 +59,27 @@ export function startServer({ port = 4477, host = '127.0.0.1', shell = process.e
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
+    if (url.pathname === '/capture') return handleCapture(req, res, url);
     const entry = FILES[url.pathname];
     if (!hostOk(req.headers.host) || !entry) { res.writeHead(404).end('not found'); return; }
     if (url.pathname === '/' && url.searchParams.get('t') !== token) { res.writeHead(403).end('missing or bad token'); return; }
     res.writeHead(200, { 'content-type': entry[1] + '; charset=utf-8', 'cache-control': 'no-store' });
     fs.createReadStream(path.isAbsolute(entry[0]) ? entry[0] : path.join(root, entry[0])).pipe(res);
   });
+
+  // A picture of the user's screen is sensitive: POST only, token + Host + Origin checked, on an explicit click,
+  // bytes returned in the response and never stored.
+  async function handleCapture(req, res, url) {
+    const origin = req.headers.origin;
+    if (!hostOk(req.headers.host) || url.searchParams.get('t') !== token || !allowedHosts.some((h) => origin === `http://${h}`)) { res.writeHead(403).end('forbidden'); return; }
+    if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end('POST only'); return; }
+    try {
+      const img = await capture();
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'content-length': img.length }).end(img);
+    } catch (e) {
+      res.writeHead(500, { 'content-type': 'text/plain' }).end('Capture failed. Allow Screen Recording for the app running Brick (System Settings > Privacy & Security > Screen & System Audio Recording), then restart it.');
+    }
+  }
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
   server.on('upgrade', (req, socket, head) => {

@@ -13,10 +13,37 @@
   <nav id="tabs"></nav>
   <button id="new-tab" title="New tab (Alt+Shift+T)">+</button>
   <span class="spacer"></span>
+  <button id="appearance" title="Appearance: glass, backdrop, per-pane look">Appearance</button>
   <button id="split-right" title="Split right (Alt+Shift+D)">Split right</button>
   <button id="split-down" title="Split down (Alt+Shift+S)">Split down</button>
 </header>
 <div id="stage"></div>
+<aside id="appearance-panel" role="dialog" aria-label="Appearance" hidden>
+  <div class="ap-head"><strong>Appearance</strong><button id="ap-close" title="Close (Esc)">×</button></div>
+  <section>
+    <h3>Window</h3>
+    <label class="row"><span>Glass</span><input id="glass" type="checkbox"></label>
+    <label class="row"><span>Opacity</span><input id="glass-opacity" type="range" min="15" max="100" step="1"><output id="glass-opacity-out"></output></label>
+    <label class="row"><span>Blur</span><input id="glass-blur" type="range" min="0" max="30" step="1"><output id="glass-blur-out"></output></label>
+    <div class="row"><span>Backdrop</span><span class="btns">
+      <button id="bd-capture" title="Use a picture of your desktop as the backdrop (counts down first so you can hide this window)">Desktop</button>
+      <button id="bd-file" title="Use an image file as the backdrop">Image</button>
+      <button id="bd-reset" title="Back to the built-in gradient" hidden>Reset</button></span></div>
+    <input id="bd-input" type="file" accept="image/*" hidden>
+  </section>
+  <section>
+    <h3>This pane <small id="ap-pane"></small></h3>
+    <div class="seg" id="pane-mode" role="group" aria-label="Pane look">
+      <button data-mode="window" title="Follow the window setting">Window</button>
+      <button data-mode="solid" title="Always opaque">Solid</button>
+      <button data-mode="glass" title="Always glass, with its own settings">Glass</button>
+    </div>
+    <div id="pane-glass" hidden>
+      <label class="row"><span>Opacity</span><input id="pane-opacity" type="range" min="15" max="100" step="1"><output id="pane-opacity-out"></output></label>
+      <label class="row"><span>Blur</span><input id="pane-blur" type="range" min="0" max="30" step="1"><output id="pane-blur-out"></output></label>
+    </div>
+  </section>
+</aside>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
 <script type="module" src="/app.js"></script>
