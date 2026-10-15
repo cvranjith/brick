@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brick</title>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <span class="logo">Brick</span>
+  <nav id="tabs"></nav>
+  <button id="new-tab" title="New tab (Alt+Shift+T)">+</button>
+  <span class="spacer"></span>
+  <button id="split-right" title="Split right (Alt+Shift+D)">Split right</button>
+  <button id="split-down" title="Split down (Alt+Shift+S)">Split down</button>
+</header>
+<div id="stage"></div>
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

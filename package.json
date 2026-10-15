@@ -1,0 +1,24 @@
+{
+  "name": "brick",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tiny block-based terminal in the browser: Node pty backend + xterm.js. A technical experiment.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.1"
+  }
+}
