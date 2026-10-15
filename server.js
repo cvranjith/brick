@@ -32,11 +32,12 @@ function makeZdotdir(origZdotdir) {
   proxy('.zprofile');
   proxy('.zlogin');
   const extraRc = process.env.BRICK_ZSHRC || path.join(os.homedir(), '.brick', 'zshrc');
+  // macOS /etc/zshrc points HISTFILE at ${ZDOTDIR}/.zsh_history, i.e. our temp dir, so set it back to the
+  // real location here: after /etc/zshrc, before the user's own .zshrc (which may override it).
   proxy('.zshrc', `[[ -f ${JSON.stringify(extraRc)} ]] && source ${JSON.stringify(extraRc)}\n` +
     `source ${JSON.stringify(path.join(root, 'shell/brick.zsh'))}\n`);
-  // keep history in the user's real location
-  fs.writeFileSync(path.join(dir, '.zshenv'),
-    `: \${HISTFILE:="$BRICK_ORIG_ZDOTDIR/.zsh_history"}\n` + fs.readFileSync(path.join(dir, '.zshenv'), 'utf8'));
+  const zshrc = path.join(dir, '.zshrc');
+  fs.writeFileSync(zshrc, 'HISTFILE="$BRICK_ORIG_ZDOTDIR/.zsh_history"\n' + fs.readFileSync(zshrc, 'utf8'));
   return dir;
 }
 

@@ -1,6 +1,6 @@
 # Brick verification
 
-Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 33 tests, all passing at time of writing (9 protocol, 11 UI, 13 tabs/splits).
+Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 34 tests, all passing at time of writing (10 protocol, 11 UI, 13 tabs/splits).
 
 | Scenario | Protocol test (real zsh, no browser) | UI test (headless Chrome) |
 |---|---|---|
@@ -47,6 +47,7 @@ prompt. Resetting through the write queue (`ESC c`) fixed it. This bug existed b
 - Interactive programs are only detected if they use the alternate screen. Curses-less REPLs work as normal
   block I/O; programs that need the real window size before entering the alternate screen see a 6-row pty
   until the overlay resizes it (apps handle SIGWINCH, but a few redraw late).
+- Blocks on screen are not saved: a reload or server restart starts with an empty pane (zsh history, i.e. the up-arrow, is saved).
 - Pty size is global: while a block runs, `stty size` reports the input terminal's rows (6).
 - Two browser windows on the same URL are two independent sets of tabs (not shared). No persistence across reloads.
 - Duration is measured in the browser, so it includes WebSocket latency. Not tested with a backgrounded tab.
