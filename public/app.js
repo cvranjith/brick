@@ -53,8 +53,8 @@ class Session {
   constructor() {
     this.el = document.createElement('div');
     this.el.className = 'pane';
-    this.el.innerHTML = '<div class="pane-head"><span class="pane-cwd"></span><span class="pane-state"></span>' +
-      '<button class="pane-fx" title="Appearance of this pane">◐</button>' +
+    this.el.innerHTML = '<div class="pane-bg"></div><div class="pane-tint"></div>' +
+      '<div class="pane-head"><span class="pane-cwd"></span><span class="pane-state"></span>' +
       '<button class="pane-pop" title="Move to a new tab">⇱</button>' +
       '<button class="pane-close" title="Close pane (Alt+Shift+W)">×</button></div>' +
       '<main class="blocks"></main><footer><div class="input"></div></footer>';
@@ -67,25 +67,15 @@ class Session {
     this.ended = false;
     this.el._session = this;
     this.el.addEventListener('mousedown', () => app.focus(this));
-    this.fx = { mode: 'window', opacity: 0.6, blur: 12 };   // 'window' follows the window setting; 'solid' | 'glass' override it
-    this.el.querySelector('.pane-fx').addEventListener('click', (e) => { e.stopPropagation(); app.focus(this); toggleAppearance(); });
+    this.look = null;   // null: follows its tab's look; otherwise this pane's own
     this.el.querySelector('.pane-pop').addEventListener('click', (e) => { e.stopPropagation(); app.popOut(this); });
     this.el.querySelector('.pane-head').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.target.closest('button')) dragPane(e, this); });
     this.el.querySelector('.pane-close').addEventListener('click', (e) => { e.stopPropagation(); app.closePane(this); });
   }
 
-  // Translucent or opaque? A pane's own setting wins over the window's.
-  applyFx() {
-    const f = this.fx, glassy = f.mode === 'window' ? glass.on : f.mode === 'glass';
-    this.el.classList.toggle('fx-glass', glassy);
-    if (f.mode === 'glass') { this.el.style.setProperty('--op', f.opacity); this.el.style.setProperty('--blur', `${f.blur}px`); }
-    else { this.el.style.removeProperty('--op'); this.el.style.removeProperty('--blur'); }
-    refreshBackdropClass();
-  }
-
   // Call once the pane is in the DOM and visible, so xterm can measure it.
   start() {
-    this.applyFx();   // pick up the window's glass setting
+    applyLook(this);
     this.inputTerm = new Terminal({ ...TERM_OPTS, rows: INPUT_ROWS, cursorBlink: true });
     this.inputFit = new FitAddon();
     this.inputTerm.loadAddon(this.inputFit);
@@ -268,7 +258,8 @@ function dragTab(startEv, tab) {   // live reorder: the button follows the point
     begin: () => tab.btn.classList.add('dragging'),
     move: (ev) => {
       const others = [...$('tabs').children].filter((b) => b !== tab.btn);
-      const before = others.find((b) => { const r = b.getBoundingClientRect(); return ev.clientX < r.left + r.width / 2; });
+      const vert = tabsCfg.pos !== 'top';
+      const before = others.find((b) => { const r = b.getBoundingClientRect(); return vert ? ev.clientY < r.top + r.height / 2 : ev.clientX < r.left + r.width / 2; });
       if (before ? tab.btn.nextSibling !== before : tab.btn !== $('tabs').lastChild) $('tabs').insertBefore(tab.btn, before || null);
     },
     end: () => {
@@ -286,7 +277,7 @@ function dropTarget(x, y, source) {
   if (!el) return null;
   const tabBtn = el.closest('.tab');
   if (tabBtn) { const tab = app.tabs.find((t) => t.btn === tabBtn); return tab ? { kind: 'tab', tab, el: tabBtn } : null; }
-  if (el.id === 'new-tab' || el.id === 'tabs' || el.tagName === 'HEADER' || el.classList.contains('spacer')) return { kind: 'new', el: document.querySelector('header') };   // empty bar space
+  if (el.id === 'new-tab' || el.id === 'tabs' || el.id === 'tabbar' || el.tagName === 'HEADER' || el.classList.contains('spacer') || el.closest('#sidebar')) return { kind: 'new', el: el.closest('#sidebar') || document.querySelector('header') };   // empty bar space
   const paneEl = el.closest('.pane');
   const target = paneEl?._session;
   if (!target || target === source) return null;
@@ -364,11 +355,11 @@ const app = {
   tabs: [], active: null, focused: null,
 
   makeTab() {
-    const tab = { el: document.createElement('div'), btn: document.createElement('button'), root: null, focused: null };
+    const tab = { el: document.createElement('div'), btn: document.createElement('button'), root: null, focused: null, look: cloneLook(lastLook) };
     tab.el.className = 'tab-content hidden';
     $('stage').appendChild(tab.el);
     tab.btn.className = 'tab';
-    tab.btn.innerHTML = '<span class="tab-title">shell</span><span class="tab-close" title="Close tab">×</span>';
+    tab.btn.innerHTML = '<span class="tab-ini">s</span><span class="tab-name">shell</span><span class="tab-title">shell</span><span class="tab-close" title="Close tab">×</span>';
     tab.btn.addEventListener('click', (e) => {
       if (suppressClick) return;
       e.target.classList.contains('tab-close') ? this.closeTab(tab) : this.switchTo(tab);
@@ -521,7 +512,10 @@ const app = {
   updateTitles() {
     for (const t of this.tabs) {
       const cwd = t.focused?.cwd || '';
-      t.btn.querySelector('.tab-title').textContent = cwd ? (cwd.split('/').filter(Boolean).pop() || '/') : 'shell';
+      const title = cwd ? (cwd.split('/').filter(Boolean).pop() || '/') : 'shell';
+      t.btn.querySelector('.tab-title').textContent = title;
+      t.btn.querySelector('.tab-ini').textContent = title[0];
+      t.btn.querySelector('.tab-name').textContent = title;   // the floating label shown on hover when the bar is collapsed
     }
   },
 
@@ -558,45 +552,95 @@ const app = {
     tab.el.replaceChildren(root);
     all.forEach((s, i) => { s.blocksEl.scrollTop = scroll[i]; });
     tab.el.classList.toggle('multi', leaves(tab.root).length > 1);
+    all.forEach(applyLook);   // a pane that changed tab takes on the new tab's look
   },
 };
 
-// ---- appearance: window glass, per-pane look, backdrop picture (a browser page cannot see through to the desktop) ----
-const glass = { on: false, opacity: 0.6, blur: 12 };
-try { Object.assign(glass, JSON.parse(localStorage.getItem('brick.glass') || '{}')); } catch {}
+// ---- appearance: one panel; the look applies to every pane of the tab or only to the focused pane ----
+// look = { bg: 'desktop' | 'image' | 'capture' | 'solid' | 'blend', solid: colour, blend: [3 colours], opacity 0..1, blur px }
+// A pane is painted in layers: its background (picture, gradient or colour; blurred) and a tint at the chosen opacity.
+const DEFAULT_LOOK = { bg: 'solid', solid: '#14161b', blend: ['#3b4fd8', '#b13fa6', '#0e9aa7'], opacity: 1, blur: 12 };
+const cloneLook = (l) => JSON.parse(JSON.stringify(l));
+const PICTURES = ['desktop', 'image', 'capture'];
+let lastLook = cloneLook(DEFAULT_LOOK);   // new tabs start with the look you last chose for a tab
+try { const saved = JSON.parse(localStorage.getItem('brick.look') || 'null'); if (saved && typeof saved === 'object') lastLook = { ...DEFAULT_LOOK, ...saved }; } catch {}
+const pics = { desktop: null, image: null, capture: null };   // object URLs of the three picture slots
 const allPanes = () => app.tabs.flatMap((t) => leaves(t.root));
-function refreshBackdropClass() {   // the backdrop is visible while window glass is on or any pane is glass
-  document.body.classList.toggle('backdrop', glass.on || allPanes().some((s) => s.fx.mode === 'glass'));
+const lookOf = (s) => s.look ?? s.tab.look;
+const mix = (c, op) => `color-mix(in srgb, ${c} ${Math.round(op * 100)}%, transparent)`;
+
+function applyLook(s) {
+  const l = lookOf(s), el = s.el, set = (k, v) => el.style.setProperty(k, v);
+  const solid = l.bg === 'solid', picture = PICTURES.includes(l.bg);
+  const [c1, c2, c3] = l.blend;
+  set('--layer', solid ? 'none' : picture ? (pics[l.bg] ? `url("${pics[l.bg]}")` : 'none')
+    : `radial-gradient(ellipse at 15% 10%, ${c1} 0, transparent 50%), radial-gradient(ellipse at 85% 25%, ${c2} 0, transparent 45%), radial-gradient(ellipse at 60% 95%, ${c3} 0, transparent 50%)`);
+  set('--layer-base', solid ? l.solid : '#0b0d14');
+  set('--blur', solid ? '0px' : `${l.blur}px`);
+  const fill = solid ? l.solid : 'var(--bg)', panel = solid ? `color-mix(in srgb, ${l.solid} 92%, white)` : 'var(--panel)';
+  set('--pane-bg', mix(fill, l.opacity));
+  set('--panel-bg', mix(panel, l.opacity));
+  el.classList.toggle('layered', !solid);
+  el.classList.toggle('see-through', l.opacity < 1);
 }
-function applyGlass(save = true) {
-  document.body.classList.toggle('glass', glass.on);
-  document.body.style.setProperty('--op', glass.opacity);
-  document.body.style.setProperty('--blur', `${glass.blur}px`);
-  allPanes().forEach((s) => s.applyFx());
-  refreshBackdropClass();
-  refreshPanel();
-  if (save) try { localStorage.setItem('brick.glass', JSON.stringify(glass)); } catch {}
-}
-function toggleGlass() { glass.on = !glass.on; applyGlass(); }
+const applyAll = () => allPanes().forEach(applyLook);
 
 const panel = $('appearance-panel');
+let scope = 'tab';   // what the panel edits: 'tab' (every pane of the active tab) or 'pane' (the focused pane only)
 const pct = (v) => `${Math.round(v * 100)}%`;
-function refreshPanel() {   // sync the panel with the window settings and the focused pane
+const editing = () => (scope === 'pane' && app.focused ? app.focused.look ?? app.focused.tab.look : app.active?.look ?? lastLook);
+// Change the look being edited. For 'tab' every pane of the tab follows; for 'pane' only the focused one gets its own copy.
+function edit(change) {
+  if (scope === 'pane' && app.focused) {
+    const s = app.focused; s.look ??= cloneLook(s.tab.look); change(s.look); applyLook(s);
+  } else if (app.active) {
+    const tab = app.active; change(tab.look); leaves(tab.root).forEach((s) => { s.look = null; applyLook(s); });
+    lastLook = cloneLook(tab.look);
+    try { localStorage.setItem('brick.look', JSON.stringify(lastLook)); } catch {}
+  }
+  refreshPanel();
+}
+const BG_LABEL = { desktop: 'Wallpaper', image: 'Image', capture: 'Screenshot' };
+let message = '';
+function refreshPanel() {
   if (panel.hidden) return;
-  $('glass').checked = glass.on;
-  $('glass-opacity').value = Math.round(glass.opacity * 100); $('glass-opacity-out').textContent = pct(glass.opacity);
-  $('glass-blur').value = glass.blur; $('glass-blur-out').textContent = `${glass.blur}px`;
-  const s = app.focused;
-  if (!s) return;
-  $('ap-pane').textContent = s.cwd ? s.cwd.split('/').filter(Boolean).pop() || '/' : 'shell';
-  document.querySelectorAll('#pane-mode button').forEach((b) => b.classList.toggle('on', b.dataset.mode === s.fx.mode));
-  $('pane-glass').hidden = s.fx.mode !== 'glass';
-  $('pane-opacity').value = Math.round(s.fx.opacity * 100); $('pane-opacity-out').textContent = pct(s.fx.opacity);
-  $('pane-blur').value = s.fx.blur; $('pane-blur-out').textContent = `${s.fx.blur}px`;
+  const l = editing(), s = app.focused, own = scope === 'pane' && s?.look;
+  document.querySelectorAll('#scope button').forEach((b) => b.classList.toggle('on', b.dataset.scope === scope));
+  $('ap-pane').textContent = scope === 'pane' && s ? (own ? `${s.cwd.split('/').filter(Boolean).pop() || '/'} · own look` : 'same as the tab') : '';
+  $('ap-pane-reset').hidden = !own;
+  document.querySelectorAll('#bg-kind button').forEach((b) => b.classList.toggle('on', b.dataset.bg === l.bg));
+  document.querySelectorAll('#tab-pos button').forEach((b) => b.classList.toggle('on', b.dataset.pos === tabsCfg.pos));
+  $('tab-collapse-row').hidden = tabsCfg.pos === 'top';
+  $('tab-collapse').checked = tabsCfg.collapsed;
+  const picture = PICTURES.includes(l.bg);
+  $('bg-picture').hidden = !picture;
+  if (picture) {
+    $('bd-status').textContent = pics[l.bg] ? `${BG_LABEL[l.bg]} loaded` : `No ${BG_LABEL[l.bg].toLowerCase()} yet`;
+    $('bd-action').textContent = { desktop: 'Refresh', image: 'Choose file…', capture: 'Take screenshot' }[l.bg];
+  }
+  $('bg-colors').hidden = picture;
+  const cols = l.bg === 'solid' ? [l.solid] : l.blend;
+  $('colors').replaceChildren(...cols.map((c, i) => {
+    const input = Object.assign(document.createElement('input'), { type: 'color', value: c, title: l.bg === 'solid' ? 'Colour' : `Colour ${i + 1}` });
+    input.addEventListener('input', () => edit((x) => { if (x.bg === 'solid') x.solid = input.value; else x.blend[i] = input.value; }));
+    return input;
+  }));
+  $('opacity').value = Math.round(l.opacity * 100); $('opacity-out').textContent = pct(l.opacity);
+  $('blur').value = l.blur; $('blur-out').textContent = `${l.blur}px`;
+  $('blur').disabled = l.bg === 'solid';
+  $('bd-msg').hidden = !message; $('bd-msg').textContent = message;
 }
 function openAppearance() { panel.hidden = false; $('appearance').classList.add('on'); refreshPanel(); }
 function closeAppearance() { panel.hidden = true; $('appearance').classList.remove('on'); app.focused?.focusTerm(); }
 function toggleAppearance() { panel.hidden ? openAppearance() : closeAppearance(); }
+// Alt+Shift+G: flip the active tab between a plain look and its last picture look
+function toggleGlass() {
+  const tab = app.active; if (!tab) return;
+  const prev = scope; scope = 'tab';
+  if (tab.look.bg === 'solid') { const back = tab.prevLook || { bg: 'blend', opacity: 0.6 }; edit((x) => Object.assign(x, back)); }
+  else { tab.prevLook = { bg: tab.look.bg, opacity: tab.look.opacity }; edit((x) => { x.bg = 'solid'; x.opacity = 1; }); }
+  scope = prev;
+}
 // drag the panel by its title so it never has to cover the pane being edited
 panel.querySelector('.ap-head').addEventListener('mousedown', (e) => {
   if (e.button !== 0 || e.target.closest('button')) return;
@@ -610,16 +654,19 @@ panel.querySelector('.ap-head').addEventListener('mousedown', (e) => {
 $('appearance').addEventListener('click', toggleAppearance);
 $('ap-close').addEventListener('click', closeAppearance);
 addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !panel.hidden) { ev.preventDefault(); ev.stopPropagation(); closeAppearance(); } }, true);   // Esc closes the panel and is not sent to the shell
-$('glass').addEventListener('change', (e) => { glass.on = e.target.checked; applyGlass(); });
-$('glass-opacity').addEventListener('input', (e) => { glass.opacity = Number(e.target.value) / 100; applyGlass(); });
-$('glass-blur').addEventListener('input', (e) => { glass.blur = Number(e.target.value); applyGlass(); });
-document.querySelectorAll('#pane-mode button').forEach((b) => b.addEventListener('click', () => { if (app.focused) { app.focused.fx.mode = b.dataset.mode; app.focused.applyFx(); refreshPanel(); } }));
-$('pane-opacity').addEventListener('input', (e) => { const s = app.focused; if (s) { s.fx.opacity = Number(e.target.value) / 100; s.applyFx(); refreshPanel(); } });
-$('pane-blur').addEventListener('input', (e) => { const s = app.focused; if (s) { s.fx.blur = Number(e.target.value); s.applyFx(); refreshPanel(); } });
-applyGlass(false);
+document.querySelectorAll('#scope button').forEach((b) => b.addEventListener('click', () => { scope = b.dataset.scope; refreshPanel(); }));
+$('ap-pane-reset').addEventListener('click', () => { const s = app.focused; if (s) { s.look = null; applyLook(s); refreshPanel(); } });
+$('opacity').addEventListener('input', (e) => edit((x) => { x.opacity = Number(e.target.value) / 100; }));
+$('blur').addEventListener('input', (e) => edit((x) => { x.blur = Number(e.target.value); }));
+$('ap-reset').addEventListener('click', () => edit((x) => Object.assign(x, cloneLook(DEFAULT_LOOK))));
+document.querySelectorAll('#bg-kind button').forEach((b) => b.addEventListener('click', () => {
+  const bg = b.dataset.bg; message = '';
+  edit((x) => { x.bg = bg; if (bg !== 'solid' && x.opacity > 0.85) x.opacity = 0.6; });   // a picture is not visible behind a fully opaque pane
+  if (bg === 'desktop' && !pics.desktop) loadPicture('desktop');   // the wallpaper needs no hiding or waiting, so fetch it right away
+  if (bg === 'image' && !pics.image) $('bd-input').click();
+}));
 
-// Backdrop picture behind the glass: a desktop capture (taken by the server) or a file. Kept in IndexedDB, never sent anywhere.
-let backdropUrl = null;
+// Pictures: the wallpaper and screenshots come from the server (macOS), an image from a file. Kept in IndexedDB in this browser only.
 const kv = (mode, op) => new Promise((resolve) => {
   try {
     const open = indexedDB.open('brick', 1);
@@ -628,31 +675,129 @@ const kv = (mode, op) => new Promise((resolve) => {
     open.onsuccess = () => { const tx = open.result.transaction('kv', mode), req = op(tx.objectStore('kv')); tx.oncomplete = () => resolve(req?.result); tx.onerror = tx.onabort = () => resolve(undefined); };
   } catch { resolve(undefined); }
 });
-function setBackdrop(blob, save = true) {
-  if (backdropUrl) URL.revokeObjectURL(backdropUrl);
-  backdropUrl = blob ? URL.createObjectURL(blob) : null;
-  if (backdropUrl) document.body.style.setProperty('--bd', `url("${backdropUrl}") center / cover no-repeat`);
-  else document.body.style.removeProperty('--bd');
-  $('bd-reset').hidden = !blob;
-  if (save) kv('readwrite', (s) => (blob ? s.put(blob, 'backdrop') : s.delete('backdrop')));
+function setPicture(slot, blob, save = true) {
+  if (pics[slot]) URL.revokeObjectURL(pics[slot]);
+  pics[slot] = blob ? URL.createObjectURL(blob) : null;
+  if (save && blob) kv('readwrite', (st) => st.put(blob, `pic-${slot}`));
+  applyAll(); refreshPanel();
 }
-async function captureBackdrop() {
-  const btn = $('bd-capture'), label = btn.textContent;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let busy = false;
+// slot 'desktop': just the wallpaper, no windows, instantly. slot 'capture': everything on screen, after a countdown so you can arrange it.
+async function loadPicture(slot) {
+  if (busy) return; busy = true;
+  const btn = $('bd-action'), label = btn.textContent; message = '';
   btn.disabled = true;
   try {
-    for (let n = window.__brick.captureDelay; n > 0; n--) { btn.textContent = `Hide this window… ${n}`; await new Promise((r) => setTimeout(r, 1000)); }
-    btn.textContent = 'Capturing…';
-    const res = await fetch(`/capture?t=${token}`, { method: 'POST' });
+    if (slot === 'capture') for (let n = window.__brick.captureDelay; n > 0; n--) { btn.textContent = `Capturing in ${n}…`; await sleep(1000); }
+    btn.textContent = 'Working…';
+    const res = await fetch(`/capture?t=${token}&kind=${slot === 'desktop' ? 'wallpaper' : 'screen'}`, { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    setBackdrop(await res.blob());
-  } catch (e) { alert(e.message); }
-  btn.textContent = label; btn.disabled = false;
+    setPicture(slot, await res.blob());
+  } catch (e) { message = e.message; }
+  busy = false; btn.disabled = false; btn.textContent = label; refreshPanel();
 }
-$('bd-capture').addEventListener('click', captureBackdrop);
-$('bd-file').addEventListener('click', () => $('bd-input').click());
-$('bd-input').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) setBackdrop(f); e.target.value = ''; });
-$('bd-reset').addEventListener('click', () => setBackdrop(null));
-kv('readonly', (s) => s.get('backdrop')).then((blob) => { if (blob) setBackdrop(blob, false); });
+$('bd-action').addEventListener('click', () => {
+  const bg = editing().bg;
+  if (bg === 'image') $('bd-input').click(); else if (PICTURES.includes(bg)) loadPicture(bg);
+});
+$('bd-input').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) { setPicture('image', f); } e.target.value = ''; });
+Promise.all(PICTURES.map((slot) => kv('readonly', (st) => st.get(`pic-${slot}`)).then((blob) => blob && setPicture(slot, blob, false)))).then(() => {
+  kv('readwrite', (st) => st.delete('backdrop'));   // an older version's single backdrop slot
+  if (allPanes().some((s) => lookOf(s).bg === 'desktop')) loadPicture('desktop');   // follow wallpaper changes
+});
+
+
+// ---- tab bar: top, left or right (collapsible when vertical), Dock-style magnify, and a peek at a tab on hover ----
+const tabsCfg = { pos: 'top', collapsed: false };
+try { Object.assign(tabsCfg, JSON.parse(localStorage.getItem('brick.tabs') || '{}')); } catch {}
+if (!['top', 'left', 'right'].includes(tabsCfg.pos)) tabsCfg.pos = 'top';
+function applyTabs() {
+  const vert = tabsCfg.pos !== 'top', side = $('sidebar'), bar = $('tabbar');
+  document.body.classList.toggle('tabs-right', tabsCfg.pos === 'right');
+  side.hidden = !vert;
+  if (vert) side.append(bar); else document.querySelector('header').insertBefore(bar, document.querySelector('header .spacer'));
+  side.classList.toggle('collapsed', vert && tabsCfg.collapsed);
+  $('tabs-collapse').hidden = !vert;
+  const folded = vert && tabsCfg.collapsed, towardsStage = tabsCfg.pos === 'left';   // arrow points where the bar will move
+  $('tabs-collapse').textContent = folded === towardsStage ? '»' : '«';
+  resetDock(); hidePeek();
+  refreshPanel();
+  try { localStorage.setItem('brick.tabs', JSON.stringify(tabsCfg)); } catch {}
+}
+document.querySelectorAll('#tab-pos button').forEach((b) => b.addEventListener('click', () => { tabsCfg.pos = b.dataset.pos; applyTabs(); }));
+$('tab-collapse').addEventListener('change', (e) => { tabsCfg.collapsed = e.target.checked; applyTabs(); });
+$('tabs-collapse').addEventListener('click', () => { tabsCfg.collapsed = !tabsCfg.collapsed; applyTabs(); });
+
+// Dock effect: tabs near the pointer grow, falling off smoothly with distance along the bar.
+function resetDock() { for (const b of $('tabs').children) { b.style.transform = ''; b.style.removeProperty('--s'); b.classList.remove('hot'); } }
+$('tabs').addEventListener('pointermove', (ev) => {
+  if (document.body.classList.contains('dragging')) return;
+  const vert = tabsCfg.pos !== 'top', max = vert ? (tabsCfg.collapsed ? 1.7 : 1.2) : 1.25, reach = vert ? 85 : 150;
+  let near = null, nearD = Infinity;
+  for (const b of $('tabs').children) {
+    const r = b.getBoundingClientRect();   // scaling about the centre leaves the centre where it was
+    const d = Math.abs(vert ? ev.clientY - (r.top + r.height / 2) : ev.clientX - (r.left + r.width / 2));
+    const s = 1 + (max - 1) * Math.cos(Math.min(1, d / reach) * Math.PI / 2) ** 1.5;   // the nearest grows most, neighbours less, then none
+    b.style.transformOrigin = vert && !tabsCfg.collapsed ? (tabsCfg.pos === 'left' ? 'left center' : 'right center') : 'center';
+    b.style.transform = s > 1.001 ? `scale(${s.toFixed(3)})` : '';
+    b.style.setProperty('--s', s.toFixed(3));
+    b.classList.remove('hot');
+    if (d < nearD) { nearD = d; near = b; }
+  }
+  near?.classList.add('hot');
+});
+$('tabs').addEventListener('pointerleave', resetDock);
+
+// Peek: rest the pointer on a tab for a moment and a scaled copy of that tab appears, with no click needed. Click the copy to go there.
+const peekEl = $('peek');
+let peekTab = null, peekDwell = 0, peekHide = 0, peekLive = 0;
+function drawPeek() {
+  const tab = peekTab; if (!tab) return;
+  const st = $('stage').getBoundingClientRect(), width = Math.min(560, innerWidth - 24), k = width / st.width;
+  const view = peekEl.querySelector('.peek-view'), scale = peekEl.querySelector('.peek-scale');
+  peekEl.style.width = `${width}px`;
+  view.style.height = `${st.height * k}px`;
+  Object.assign(scale.style, { width: `${st.width}px`, height: `${st.height}px`, transform: `scale(${k})` });
+  const copy = tab.el.cloneNode(true);
+  copy.classList.remove('hidden'); copy.inert = true;
+  scale.replaceChildren(copy);
+  copy.querySelectorAll('.blocks').forEach((m) => { m.scrollTop = m.scrollHeight; });   // the latest output is what you want to see
+}
+function showPeek(tab) {
+  peekTab = tab;
+  peekEl.querySelector('.peek-title').innerHTML = '<span></span><span>click to open</span>';
+  peekEl.querySelector('.peek-title span').textContent = tab.btn.title || 'shell';
+  peekEl.hidden = false;
+  drawPeek();
+  const r = tab.btn.getBoundingClientRect(), box = peekEl.getBoundingClientRect(), pos = tabsCfg.pos;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const left = pos === 'left' ? r.right + 8 : pos === 'right' ? r.left - box.width - 8 : clamp(r.left, 8, innerWidth - box.width - 8);
+  const top = pos === 'top' ? r.bottom + 8 : clamp(r.top, 8, innerHeight - box.height - 8);
+  Object.assign(peekEl.style, { left: `${Math.max(8, left)}px`, top: `${top}px` });
+  clearInterval(peekLive); peekLive = setInterval(drawPeek, 1000);   // keeps up with output while you look
+}
+function hidePeek() {
+  clearTimeout(peekDwell); clearTimeout(peekHide); clearInterval(peekLive);
+  peekTab = null; peekEl.hidden = true; peekEl.querySelector('.peek-scale').replaceChildren();
+}
+$('tabs').addEventListener('pointerover', (ev) => {
+  const btn = ev.target.closest('.tab'); if (!btn || document.body.classList.contains('dragging')) return;
+  const tab = app.tabs.find((t) => t.btn === btn); if (!tab) return;
+  clearTimeout(peekHide); clearTimeout(peekDwell);
+  if (tab === app.active) { hidePeek(); return; }
+  // while one peek is open, moving to the next tab shows it quickly, so you can scan along the bar
+  peekDwell = setTimeout(() => showPeek(tab), peekEl.hidden ? window.__brick.peekDelay : 250);
+});
+$('tabs').addEventListener('pointerout', (ev) => {
+  if (ev.relatedTarget?.closest?.('.tab') || ev.relatedTarget === peekEl || peekEl.contains(ev.relatedTarget)) return;
+  clearTimeout(peekDwell); clearTimeout(peekHide); peekHide = setTimeout(hidePeek, 250);
+});
+peekEl.addEventListener('pointerenter', () => clearTimeout(peekHide));
+peekEl.addEventListener('pointerleave', () => { clearTimeout(peekHide); peekHide = setTimeout(hidePeek, 150); });
+peekEl.addEventListener('click', () => { const t = peekTab; hidePeek(); if (t) app.switchTo(t); });
+$('tabs').addEventListener('mousedown', hidePeek);
+addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !peekEl.hidden) hidePeek(); }, true);
 
 $('new-tab').addEventListener('click', () => app.newTab());
 $('split-right').addEventListener('click', () => app.split('h'));
@@ -661,5 +806,6 @@ document.addEventListener('keydown', (ev) => {   // shortcuts when focus is not 
   const name = shortcutFor(ev);
   if (name && !ev.defaultPrevented) { ev.preventDefault(); runShortcut(name); }   // xterm's handler already ran it otherwise
 });
+window.__brick = { app, leaves, captureDelay: 5, peekDelay: 1200, get session() { return app.focused; } };   // for tests
+applyTabs();
 app.newTab();
-window.__brick = { app, leaves, captureDelay: 5, get session() { return app.focused; } };   // for tests

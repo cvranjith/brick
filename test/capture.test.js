@@ -5,8 +5,8 @@ import http from 'node:http';
 import { startServer } from '../server.js';
 
 const JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');
-let calls = 0, srv, base;
-test.before(async () => { srv = await startServer({ port: 0, capture: async () => { calls++; return JPEG; } }); base = `http://127.0.0.1:${srv.port}`; });
+let calls = 0, lastKind, srv, base;
+test.before(async () => { srv = await startServer({ port: 0, capture: async (kind) => { calls++; lastKind = kind; return JPEG; } }); base = `http://127.0.0.1:${srv.port}`; });
 test.after(() => srv.close());
 // fetch() cannot set Host, so use a raw request (this is also what DNS rebinding looks like to the server)
 const raw = (path, headers, method = 'POST') => new Promise((resolve, reject) => {
@@ -21,6 +21,15 @@ test('capture: right token + same origin returns the image bytes', async () => {
   assert.equal(r.headers.get('content-type'), 'image/jpeg');
   assert.equal(r.headers.get('cache-control'), 'no-store');
   assert.deepEqual(Buffer.from(await r.arrayBuffer()), JPEG);
+});
+
+test('capture: kind picks wallpaper or screen (screen by default); anything else is a 400', async () => {
+  await post(`/capture?t=${srv.token}&kind=wallpaper`, { origin: base }); assert.equal(lastKind, 'wallpaper');
+  await post(`/capture?t=${srv.token}&kind=screen`, { origin: base }); assert.equal(lastKind, 'screen');
+  await post(`/capture?t=${srv.token}`, { origin: base }); assert.equal(lastKind, 'screen');
+  const before = calls;
+  assert.equal((await post(`/capture?t=${srv.token}&kind=../../etc/passwd`, { origin: base })).status, 400);
+  assert.equal(calls, before);
 });
 
 test('capture: refused without the token, with a wrong token, or from another origin, and nothing is captured', async () => {

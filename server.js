@@ -42,11 +42,28 @@ function makeZdotdir(origZdotdir) {
   return dir;
 }
 
-// Screenshot of the desktop as JPEG bytes (macOS `screencapture`; needs Screen Recording permission for the terminal that runs this).
-async function captureDesktop() {
-  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brick-shot-')), 'desktop.jpg');
+const run = (cmd, args, timeout) => new Promise((resolve, reject) => execFile(cmd, args, { timeout }, (err, _o, stderr) => (err ? reject(new Error(stderr || err.message)) : resolve())));
+
+// The wallpaper helper (tools/wallpaper.swift) is compiled once into ~/.brick/bin and rebuilt when its source changes.
+let helperReady;
+function wallpaperHelper() {
+  const src = path.join(root, 'tools', 'wallpaper.swift'), bin = path.join(os.homedir(), '.brick', 'bin', 'wallpaper');
+  helperReady ??= (async () => {
+    const fresh = fs.existsSync(bin) && fs.statSync(bin).mtimeMs >= fs.statSync(src).mtimeMs;
+    if (!fresh) { fs.mkdirSync(path.dirname(bin), { recursive: true }); await run('swiftc', ['-O', src, '-o', bin], 180000); }
+    return bin;
+  })().catch((e) => { helperReady = undefined; throw e; });
+  return helperReady;
+}
+
+// Pictures of the screen as JPEG bytes. Both need Screen Recording permission for the app that runs Brick.
+//   'wallpaper': only the desktop picture, without any windows, so nothing has to be hidden (ScreenCaptureKit helper)
+//   'screen':    everything visible right now (macOS `screencapture`)
+async function captureDesktop(kind = 'screen') {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'brick-shot-')), 'shot.jpg');
   try {
-    await new Promise((resolve, reject) => execFile('screencapture', ['-x', '-t', 'jpg', file], { timeout: 15000 }, (err, _o, stderr) => (err ? reject(new Error(stderr || err.message)) : resolve())));
+    if (kind === 'wallpaper') await run(await wallpaperHelper(), [file], 20000);
+    else await run('screencapture', ['-x', '-t', 'jpg', file], 15000);
     return fs.readFileSync(file);   // throws if nothing was written (permission denied)
   } finally { fs.rmSync(path.dirname(file), { recursive: true, force: true }); }   // the picture is never kept on disk
 }
@@ -73,11 +90,13 @@ export function startServer({ port = 4477, host = '127.0.0.1', shell = process.e
     const origin = req.headers.origin;
     if (!hostOk(req.headers.host) || url.searchParams.get('t') !== token || !allowedHosts.some((h) => origin === `http://${h}`)) { res.writeHead(403).end('forbidden'); return; }
     if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end('POST only'); return; }
+    const kind = url.searchParams.get('kind') || 'screen';
+    if (kind !== 'screen' && kind !== 'wallpaper') { res.writeHead(400).end('unknown kind'); return; }
     try {
-      const img = await capture();
+      const img = await capture(kind);
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store', 'content-length': img.length }).end(img);
     } catch (e) {
-      res.writeHead(500, { 'content-type': 'text/plain' }).end('Capture failed. Allow Screen Recording for the app running Brick (System Settings > Privacy & Security > Screen & System Audio Recording), then restart it.');
+      res.writeHead(500, { 'content-type': 'text/plain' }).end('Capture failed. Allow Screen Recording for the app running Brick (System Settings > Privacy & Security > Screen & System Audio Recording), then restart it. The wallpaper option also needs the Xcode command line tools (xcode-select --install) once, to build its small helper.');
     }
   }
 

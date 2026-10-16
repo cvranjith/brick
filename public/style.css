@@ -2,21 +2,10 @@
   --bg: #14161b; --panel: #1b1e25; --line: #2a2e38; --fg: #d7dae0; --dim: #7d8594;
   --ok: #4cc38a; --bad: #f2677a; --run: #6aa8ff;
   --mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
-  --op: 1; --blur: 0px;                      /* glass mode: panel opacity and backdrop blur */
   --pane-bg: var(--bg); --panel-bg: var(--panel);
 }
-/* Window glass: header and tabs go translucent. Each pane decides its own look below (window default, solid or glass). */
-body.glass {
-  --pane-bg: color-mix(in srgb, var(--bg) calc(var(--op) * 100%), transparent);
-  --panel-bg: color-mix(in srgb, var(--panel) calc(var(--op) * 100%), transparent);
-}
-body.glass header { backdrop-filter: blur(var(--blur)); }
-/* The backdrop picture exists while window glass is on or any pane is set to glass. --bd is set by the page for a desktop capture or an image. */
-body.backdrop {
-  background: var(--bd, radial-gradient(ellipse at 15% 10%, #3b4fd8 0, transparent 50%), radial-gradient(ellipse at 85% 25%, #b13fa6 0, transparent 45%),
-              radial-gradient(ellipse at 60% 95%, #0e9aa7 0, transparent 50%), #0b0d14);
-}
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 var(--mono); }
 body { display: flex; flex-direction: column; }
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
@@ -27,13 +16,53 @@ header { display: flex; gap: 10px; align-items: center; padding: 0 12px; height:
 #tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; }
 .tab { display: flex; gap: 8px; align-items: center; padding: 5px 10px; border-radius: 6px; color: var(--dim); white-space: nowrap; max-width: 180px; }
 .tab .tab-title { overflow: hidden; text-overflow: ellipsis; }
-.tab.active { background: var(--pane-bg); color: var(--fg); }
+.tab.active { background: var(--line); color: var(--fg); }
 .tab-close, .pane-close { color: var(--dim); padding: 0 4px; border-radius: 4px; }
 .tab-close:hover, .pane-close:hover { background: var(--line); color: var(--fg); }
-header button#new-tab, header button#split-right, header button#split-down, header button#appearance { padding: 4px 9px; border-radius: 6px; color: var(--dim); }
+header button#new-tab, #sidebar button#new-tab, header button#split-right, header button#split-down, header button#appearance { padding: 4px 9px; border-radius: 6px; color: var(--dim); }
 header button:hover { background: var(--line); color: var(--fg); }
 
-#stage { flex: 1; min-height: 0; position: relative; }
+#main { flex: 1; min-height: 0; display: flex; }
+#stage { flex: 1; min-width: 0; min-height: 0; position: relative; }
+#tabbar { display: flex; gap: 6px; align-items: center; min-width: 0; }
+
+/* vertical tab bar: a sidebar left or right of the stage; collapsed it is a narrow rail of initials */
+body.tabs-right #main { flex-direction: row-reverse; }
+#sidebar { position: relative; z-index: 20; flex: 0 0 auto; width: 190px; display: flex; flex-direction: column; padding: 6px; background: var(--panel); border-right: 1px solid var(--line); transition: width .15s; }
+body.tabs-right #sidebar { border-right: 0; border-left: 1px solid var(--line); }
+#sidebar.collapsed { width: 68px; }
+#sidebar #tabbar { flex: 1; min-height: 0; flex-direction: column; align-items: stretch; }
+#tabs { padding: 4px 0; }   /* room for the Dock-style growth */
+#sidebar #tabs { flex: 0 1 auto; flex-direction: column; overflow: visible; padding: 4px 26px 4px 6px; gap: 4px; }
+body.tabs-right #sidebar #tabs { padding: 4px 6px 4px 26px; }
+#sidebar.collapsed #tabs, body.tabs-right #sidebar.collapsed #tabs { padding: 4px 6px; gap: 10px; }
+#sidebar .tab { max-width: none; }
+#sidebar #new-tab { padding: 4px; }
+#tabs-collapse { padding: 2px 8px; border-radius: 6px; color: var(--dim); align-self: flex-end; }
+#tabs-collapse:hover, #new-tab:hover { background: var(--line); color: var(--fg); }
+.tab { position: relative; }
+.tab.hot { z-index: 5; }
+.tab-ini, .tab-name { display: none; }
+/* collapsed: the nearest tab shows its name beside it, kept at normal text size while the tab itself grows */
+#sidebar.collapsed .tab.hot .tab-name { display: block; position: absolute; top: 50%; left: calc(100% + 10px); transform: translateY(-50%) scale(calc(1 / var(--s, 1))); transform-origin: left center;
+  padding: 4px 10px; border-radius: 6px; background: var(--panel); color: var(--fg); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.45); white-space: nowrap; pointer-events: none; font-weight: 400; font-size: 13px; text-transform: none; }
+body.tabs-right #sidebar.collapsed .tab.hot .tab-name { left: auto; right: calc(100% + 10px); transform-origin: right center; }
+#sidebar.collapsed .tab { justify-content: center; padding: 6px 0; width: 36px; align-self: center; }
+#sidebar.collapsed .tab-title, #sidebar.collapsed .tab-close { display: none; }
+#sidebar.collapsed .tab-ini { display: block; font-weight: 700; font-size: 15px; text-transform: uppercase; }
+#sidebar.collapsed #tabs-collapse { align-self: center; }
+#sidebar.collapsed #new-tab { align-self: center; }
+.tab { transition: transform .08s ease-out; will-change: transform; }
+.tab.dragging, body.dragging .tab { transition: none; }
+
+/* peek: a live-ish preview of a tab, shown after hovering its button for a moment */
+#peek { position: fixed; z-index: 45; width: 560px; background: var(--panel); border: 1px solid var(--run); border-radius: 10px; box-shadow: 0 16px 50px rgba(0,0,0,.55); overflow: hidden; cursor: pointer; }
+#peek[hidden] { display: none; }
+.peek-title { padding: 6px 12px; color: var(--dim); font-size: 12px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+.peek-view { position: relative; overflow: hidden; background: var(--bg); }
+.peek-scale { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+.peek-scale .tab-content { position: relative; inset: auto; width: 100%; height: 100%; }
+.peek-scale .tab-content.hidden { display: flex; }
 .tab-content { position: absolute; inset: 0; display: flex; }
 .tab-content.hidden { display: none; }
 .split { flex: 1 1 0; display: flex; min-width: 0; min-height: 0; }
@@ -42,7 +71,10 @@ header button:hover { background: var(--line); color: var(--fg); }
 .split.h > .divider { cursor: col-resize; } .split.v > .divider { cursor: row-resize; }
 .divider:hover { background: var(--run); }
 
-.pane { --pane-bg: var(--bg); --panel-bg: var(--panel); position: relative; flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--pane-bg); border: 1px solid transparent; }
+.pane { --pane-bg: var(--bg); --panel-bg: var(--panel); --layer: none; --layer-base: var(--bg); --blur: 0px; position: relative; isolation: isolate; overflow: hidden; flex: 1 1 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; border: 1px solid transparent; }
+/* layers: the background (picture, blend or colour, blurred; fixed to the window so neighbouring panes show one picture), then a tint at the chosen opacity */
+.pane-bg { z-index: -2; position: absolute; inset: calc(var(--blur) * -2); background-color: var(--layer-base); background-image: var(--layer); background-size: cover; background-position: center; background-repeat: no-repeat; background-attachment: fixed; filter: blur(var(--blur)); pointer-events: none; }
+.pane-tint { z-index: -1; position: absolute; inset: 0; background: var(--pane-bg); pointer-events: none; }
 .multi .pane.focused { border-color: var(--run); }
 .pane-head { display: flex; gap: 10px; align-items: center; padding: 2px 8px 2px 16px; color: var(--dim); font-size: 12px; min-height: 22px; }
 .pane-cwd { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -76,34 +108,33 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none 
 .drag-ghost { position: fixed; z-index: 60; pointer-events: none; padding: 4px 10px; background: var(--panel); border: 1px solid var(--run); border-radius: 6px; font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 header.drop-target, .tab.drop-target { outline: 2px solid var(--run); outline-offset: -2px; }
 
-/* a pane that is translucent: set by the page (fx-glass) from its own setting or the window's; --op/--blur may be overridden per pane */
-.pane.fx-glass {
-  --pane-bg: color-mix(in srgb, var(--bg) calc(var(--op) * 100%), transparent);
-  --panel-bg: color-mix(in srgb, var(--panel) calc(var(--op) * 100%), transparent);
-  backdrop-filter: blur(var(--blur));   /* children sit inside the pane, so blur here only */
-}
 header button#appearance.on { color: var(--fg); background: var(--line); }
-.pane-fx { color: var(--dim); padding: 0 4px; border-radius: 4px; }
-.pane-fx:hover { background: var(--line); color: var(--fg); }
 
 /* Appearance panel: floating, not dimming the page, so changes can be watched live */
-#appearance-panel { position: fixed; top: 44px; right: 12px; z-index: 40; width: 300px; padding: 10px 14px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.45); font-size: 12px; }
+#appearance-panel { position: fixed; top: 44px; right: 12px; z-index: 40; width: 340px; padding: 10px 14px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.45); font-size: 12px; }
 #appearance-panel[hidden] { display: none; }
 .ap-head { cursor: grab; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 #ap-close { color: var(--dim); padding: 0 6px; border-radius: 4px; font-size: 16px; }
 #ap-close:hover { background: var(--line); color: var(--fg); }
-#appearance-panel section + section { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
 #appearance-panel h3 { margin: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); font-weight: 600; }
-#appearance-panel h3 small { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.sub { margin: 6px 0 0; min-height: 22px; display: flex; align-items: center; gap: 8px; color: var(--dim); }
+.note { margin: 4px 0; color: var(--bad); font-size: 11px; line-height: 1.35; }
+#colors { display: flex; gap: 8px; }
+#colors input[type=color] { width: 40px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 5px; background: none; cursor: pointer; }
+.row.foot { justify-content: flex-end; margin-top: 4px; }
+#bg-picture > span:first-child { width: auto; flex: 1; }
 .row { display: flex; align-items: center; gap: 10px; min-height: 26px; }
 .row > span:first-child { width: 62px; color: var(--dim); }
+#bg-picture > span:first-child { width: auto; flex: 1; }
 .row input[type=range] { flex: 1; min-width: 0; accent-color: var(--run); }
 .row output { width: 34px; text-align: right; color: var(--fg); }
 .row .btns { display: flex; gap: 6px; }
+.row small { color: var(--dim); }
 #appearance-panel button:not(#ap-close) { padding: 3px 9px; border-radius: 6px; color: var(--fg); border: 1px solid var(--line); }
 #appearance-panel button:not(#ap-close):hover { background: var(--line); }
 #appearance-panel button:disabled { opacity: .6; cursor: progress; }
 .seg { display: flex; margin-bottom: 4px; }
+#bg-kind button { padding: 3px 4px; }
 .seg button { flex: 1; border-radius: 0 !important; }
 .seg button:first-child { border-radius: 6px 0 0 6px !important; } .seg button:last-child { border-radius: 0 6px 6px 0 !important; }
 .seg button + button { margin-left: -1px; }

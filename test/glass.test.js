@@ -1,4 +1,4 @@
-// Appearance: window glass, per-pane look, the dismissable panel, backdrop picture. Real server, headless Chrome.
+// Appearance: one panel, background kinds (Desktop, Image, Capture, Solid, Blend), whole tab or focused pane. Real server, headless Chrome.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -9,9 +9,10 @@ const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const hasChrome = fs.existsSync(CHROME);
 const JPEG = Buffer.from('/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=', 'base64');
 let srv, browser;
+const kinds = [];   // which kind of picture the page asked the server for
 test.before(async () => {
   if (!hasChrome) return;
-  srv = await startServer({ port: 0, capture: async () => JPEG });
+  srv = await startServer({ port: 0, capture: async (kind) => { kinds.push(kind); return JPEG; } });
   browser = await chromium.launch({ executablePath: CHROME, headless: true });
 });
 test.after(async () => { await browser?.close(); srv?.close(); });
@@ -26,18 +27,23 @@ const alpha = (page, sel, n = 0) => page.locator(sel).nth(n).evaluate((el) => { 
 const setRange = (page, id, v) => page.locator(id).evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, String(v));
 const panelOpen = (page) => page.locator('#appearance-panel').isVisible();
 const openPanel = async (page) => { if (!(await panelOpen(page))) await page.click('#appearance'); };
-const bodyHas = (page, c) => page.evaluate((c) => document.body.classList.contains(c), c);
-const blur = (page, n = 0) => page.locator('.pane').nth(n).evaluate((el) => getComputedStyle(el).backdropFilter);
+const tint = (page, n = 0) => alpha(page, '.pane .pane-tint', n);
+const layer = (page, n = 0) => page.locator('.pane').nth(n).evaluate((el) => el.style.getPropertyValue('--layer'));
+const blur = (page, n = 0) => page.locator('.pane .pane-bg').nth(n).evaluate((el) => getComputedStyle(el).filter);
+const bg = (page, kind) => page.click(`#bg-kind button[data-bg="${kind}"]`);
+const scopeTo = (page, sc) => page.click(`#scope button[data-scope="${sc}"]`);
+const setColour = (page, n, v) => page.locator('#colors input').nth(n).evaluate((el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+const near = (a, b) => Math.abs(a - b) < 0.02;
 async function splitRight(page) { await page.click('#split-right'); await page.waitForFunction(() => window.__brick.app.panes().length === 2); await ready(page); }
 const headClick = (page, n) => page.locator('.pane').nth(n).locator('.pane-head').click({ position: { x: 20, y: 8 } });   // left edge: the panel may cover the right
-const setMode = (page, mode) => page.click(`#pane-mode button[data-mode="${mode}"]`);
+const moveAside = (page) => page.locator('#appearance-panel').evaluate((el) => { el.style.right = 'auto'; el.style.left = '10px'; el.style.top = '300px'; });
 
-t('default: window level, solid panes, no controls on screen', async (page) => {
-  assert.equal(await bodyHas(page, 'glass'), false);
-  assert.equal(await bodyHas(page, 'backdrop'), false);
-  assert.equal(await alpha(page, '.pane'), 1);
+t('default: plain dark panes, panel closed, no controls on screen, no per-pane button', async (page) => {
+  assert.equal(await tint(page), 1);
+  assert.equal(await layer(page), 'none');
   assert.equal(await panelOpen(page), false);
   assert.equal(await page.locator('header input').count(), 0, 'no sliders permanently in the header');
+  assert.equal(await page.locator('.pane-head button').count(), 2, 'only pop-out and close in a pane header');
   assert.equal(await page.locator('#appearance').innerText(), 'Appearance');
 });
 
@@ -56,106 +62,151 @@ t('the panel opens from the header button and closes with x, Esc or the button a
   await page.waitForFunction(() => /after-close/.test([...document.querySelectorAll('.block')].pop()?.innerText || ''));
 });
 
-t('window glass: the checkbox turns every pane translucent with a blur; sliders control it', async (page) => {
+t('one opacity and one blur slider, five backgrounds, two scopes', async (page) => {
   await openPanel(page);
-  await page.check('#glass');
-  assert.equal(await bodyHas(page, 'glass'), true);
-  assert.equal(await bodyHas(page, 'backdrop'), true);
-  await setRange(page, '#glass-opacity', 40); await setRange(page, '#glass-blur', 10);
-  assert.ok(Math.abs((await alpha(page, '.pane')) - 0.4) < 0.02);
-  assert.ok(Math.abs((await alpha(page, 'header')) - 0.4) < 0.02, 'header too');
-  assert.equal(await blur(page), 'blur(10px)');
-  assert.equal(await page.locator('#glass-opacity-out').innerText(), '40%');
-  await setRange(page, '#glass-opacity', 100);
-  assert.equal(await alpha(page, '.pane'), 1);
-  await page.uncheck('#glass');
-  assert.equal(await bodyHas(page, 'backdrop'), false);
-  assert.equal(await blur(page), 'none');
+  assert.equal(await page.locator('#appearance-panel input[type=range]').count(), 2);
+  assert.deepEqual(await page.locator('#bg-kind button').allInnerTexts(), ['Desktop', 'Image', 'Capture', 'Solid', 'Blend']);
+  assert.deepEqual(await page.locator('#scope button').allInnerTexts(), ['Whole tab', 'Focused pane']);
+  assert.equal(await page.locator('#bg-kind button.on').innerText(), 'Solid');
+  assert.equal(await page.locator('#scope button.on').innerText(), 'Whole tab');
 });
 
-t('Alt+Shift+G still toggles window glass from the keyboard, and the panel checkbox follows', async (page) => {
+t('Blend: three colours, opacity and blur apply to every pane; Solid: one colour; Reset', async (page) => {
+  await splitRight(page); await openPanel(page);
+  await bg(page, 'blend');
+  assert.equal(await page.locator('#colors input').count(), 3);
+  assert.match(await layer(page, 0), /radial-gradient/);
+  assert.match(await layer(page, 1), /radial-gradient/, 'every pane in the tab');
+  assert.ok(near(await tint(page, 0), 0.6), 'a picture is not visible behind an opaque pane, so opacity drops to 60%');
+  await setColour(page, 0, '#ff0000');
+  assert.match(await layer(page, 1), /rgb\(255, 0, 0\)|#ff0000/);
+  await setRange(page, '#opacity', 35); await setRange(page, '#blur', 9);
+  assert.ok(near(await tint(page, 1), 0.35));
+  assert.equal(await blur(page, 1), 'blur(9px)');
+  assert.equal(await page.locator('#opacity-out').innerText(), '35%');
+  await bg(page, 'solid');
+  assert.equal(await page.locator('#colors input').count(), 1);
+  assert.equal(await page.locator('#blur').isDisabled(), true, 'nothing to blur behind a plain colour');
+  assert.equal(await layer(page, 0), 'none');
+  await setColour(page, 0, '#336699'); await setRange(page, '#opacity', 100);
+  assert.equal(await page.locator('.pane').first().evaluate((el) => el.style.getPropertyValue('--layer-base')), '#336699');
+  await page.click('#ap-reset');
+  assert.equal(await tint(page), 1);
+  assert.equal(await page.locator('.pane').first().evaluate((el) => el.style.getPropertyValue('--layer-base')), '#14161b');
+});
+
+t('Desktop: fetches the wallpaper by itself, no countdown and no hiding; it is remembered and refreshed', async (page) => {
+  await openPanel(page);
+  kinds.length = 0;
+  await bg(page, 'desktop');
+  await page.waitForFunction(() => /loaded/.test(document.querySelector('#bd-status').textContent));
+  assert.deepEqual(kinds, ['wallpaper']);
+  assert.match(await layer(page), /url\("blob:/);
+  assert.equal(await page.locator('#bd-action').innerText(), 'Refresh');
+  const bytes = await page.evaluate(async () => (await (await fetch(document.querySelector('.pane').style.getPropertyValue('--layer').match(/url\("(.*?)"\)/)[1])).arrayBuffer()).byteLength);
+  assert.equal(bytes, JPEG.length);
+  await sleep(300);
+  kinds.length = 0;
+  await page.reload(); await ready(page);
+  await page.waitForFunction(() => /blob:/.test(document.querySelector('.pane').style.getPropertyValue('--layer')));   // stored picture shows at once
+  await page.waitForFunction(() => window.__brick.app.panes().length === 1);
+  await sleep(500);
+  assert.deepEqual(kinds, ['wallpaper'], 'refreshed on start so it follows wallpaper changes');
+});
+
+t('Capture: nothing is taken until you press the button; then a countdown and a screenshot', async (page) => {
+  await openPanel(page);
+  await page.evaluate(() => { window.__brick.captureDelay = 1; });
+  kinds.length = 0;
+  await bg(page, 'capture');
+  assert.equal(await page.locator('#bd-status').innerText(), 'No screenshot yet');
+  await sleep(300);
+  assert.deepEqual(kinds, [], 'choosing Capture does not capture');
+  await page.click('#bd-action');
+  assert.match(await page.locator('#bd-action').innerText(), /Capturing in/);
+  await page.waitForFunction(() => /blob:/.test(document.querySelector('.pane').style.getPropertyValue('--layer')));
+  assert.deepEqual(kinds, ['screen']);
+  assert.equal(await page.locator('#bd-action').innerText(), 'Take screenshot');
+  assert.equal(await page.locator('#bd-action').isEnabled(), true);
+});
+
+t('Image: choosing Image opens the file chooser; the file becomes the background', async (page) => {
+  await openPanel(page);
+  const chooser = page.waitForEvent('filechooser');
+  await bg(page, 'image');
+  await (await chooser).setFiles({ name: 'wall.jpg', mimeType: 'image/jpeg', buffer: JPEG });
+  await page.waitForFunction(() => /blob:/.test(document.querySelector('.pane').style.getPropertyValue('--layer')));
+  assert.equal(await page.locator('#bd-action').innerText(), 'Choose file…');
+  await sleep(300); await page.reload(); await ready(page);
+  await page.waitForFunction(() => /blob:/.test(document.querySelector('.pane').style.getPropertyValue('--layer')));   // kept in this browser
+});
+
+t('a failed capture shows the server message in the panel and changes nothing else', async (page) => {
+  await openPanel(page);
+  await page.route('**/capture*', (route) => route.fulfill({ status: 500, body: 'Capture failed. Allow Screen Recording' }));
+  await bg(page, 'desktop');
+  await page.waitForFunction(() => /Screen Recording/.test(document.querySelector('#bd-msg').textContent));
+  assert.equal(await page.locator('#bd-msg').isVisible(), true);
+  assert.equal(await layer(page), 'none');
+  assert.equal(await page.locator('#bd-action').isEnabled(), true);
+});
+
+t('Focused pane scope changes only that pane; Follow tab undoes it; Whole tab overrides every pane again', async (page) => {
+  await splitRight(page); await page.click('#split-right'); await page.waitForFunction(() => window.__brick.app.panes().length === 3); await ready(page);
+  await openPanel(page); await moveAside(page);
+  await bg(page, 'blend');                                   // whole tab: all three
+  await headClick(page, 1); await scopeTo(page, 'pane');
+  assert.equal(await page.locator('#ap-pane-reset').isVisible(), false, 'no own look yet');
+  await bg(page, 'solid'); await setColour(page, 0, '#550055');
+  assert.match(await layer(page, 0), /radial/);
+  assert.equal(await layer(page, 1), 'none');
+  assert.match(await layer(page, 2), /radial/);
+  assert.equal(await page.locator('#ap-pane-reset').isVisible(), true);
+  await headClick(page, 2);                                  // the panel follows the focused pane: it shows the tab look
+  assert.equal(await page.locator('#bg-kind button.on').innerText(), 'Blend');
+  await headClick(page, 1);
+  assert.equal(await page.locator('#bg-kind button.on').innerText(), 'Solid');
+  await page.click('#ap-pane-reset');
+  assert.match(await layer(page, 1), /radial/, 'follows the tab again');
+  await bg(page, 'solid');                                   // own look again, then override from the tab scope
+  assert.equal(await layer(page, 1), 'none');
+  await scopeTo(page, 'tab'); await setRange(page, '#opacity', 50);
+  assert.ok(near(await tint(page, 0), 0.5) && near(await tint(page, 1), 0.5) && near(await tint(page, 2), 0.5), 'all panes');
+  assert.equal(await page.evaluate(() => window.__brick.app.panes().every((s) => s.look === null)), true);
+});
+
+t('each tab has its own look; new tabs start with the look you last chose', async (page) => {
+  await openPanel(page);
+  await bg(page, 'blend'); await setRange(page, '#opacity', 45);
+  await page.click('#new-tab'); await page.waitForFunction(() => window.__brick.app.tabs.length === 2); await ready(page);
+  assert.match(await page.locator('.tab-content:not(.hidden) .pane').evaluate((el) => el.style.getPropertyValue('--layer')), /radial/, 'new tab inherits');
+  assert.equal(await page.locator('#bg-kind button.on').innerText(), 'Blend');
+  await bg(page, 'solid');
+  await page.locator('#tabs .tab').first().click();
+  assert.match(await page.locator('.tab-content:not(.hidden) .pane').evaluate((el) => el.style.getPropertyValue('--layer')), /radial/, 'the first tab is unchanged');
+});
+
+t('Alt+Shift+G flips the tab between plain and its picture look', async (page) => {
   await page.locator('.input').first().click();
   await page.keyboard.press('Alt+Shift+KeyG');
-  assert.equal(await bodyHas(page, 'glass'), true);
-  await openPanel(page);
-  assert.equal(await page.locator('#glass').isChecked(), true);
+  assert.match(await layer(page), /radial/);
   await page.keyboard.press('Alt+Shift+KeyG');
-  assert.equal(await page.locator('#glass').isChecked(), false);
+  assert.equal(await layer(page), 'none');
+  assert.equal(await tint(page), 1);
 });
 
-t('per pane: one pane solid, one glass, one following the window', async (page) => {
-  await splitRight(page); await page.click('#split-right'); await page.waitForFunction(() => window.__brick.app.panes().length === 3); await ready(page);
-  await openPanel(page);
-  await page.locator('#appearance-panel').evaluate((el) => { el.style.right = 'auto'; el.style.left = '10px'; el.style.top = '300px'; });   // out of the way of the right-hand pane
-  await page.check('#glass'); await setRange(page, '#glass-opacity', 30);       // window: glass at 30%
-  const panes = page.locator('.pane');
-  await headClick(page, 0);                                                      // focus pane 0 -> make it solid
-  await setMode(page, 'solid');
-  await headClick(page, 1);                                                      // pane 1 follows the window (default)
-  assert.equal(await page.locator('#pane-mode button.on').innerText(), 'Window');
-  await headClick(page, 2);                                                      // pane 2: own glass at 80%
-  await setMode(page, 'glass');
-  await setRange(page, '#pane-opacity', 80); await setRange(page, '#pane-blur', 4);
-  assert.equal(await alpha(page, '.pane', 0), 1, 'solid pane stays opaque although the window is glass');
-  assert.ok(Math.abs((await alpha(page, '.pane', 1)) - 0.3) < 0.02, 'default pane follows the window 30%');
-  assert.ok(Math.abs((await alpha(page, '.pane', 2)) - 0.8) < 0.02, 'own glass 80%');
-  assert.equal(await blur(page, 0), 'none');
-  assert.equal(await blur(page, 1), 'blur(12px)');
-  assert.equal(await blur(page, 2), 'blur(4px)');
-  // blocks and the input area inside a pane use that pane's setting
-  assert.equal(await alpha(page, '.pane:nth-of-type(1) footer'.replace(':nth-of-type(1)', ''), 0), 1);
-  // switching the window off leaves the solid pane solid, the default pane solid, and the glass pane glass
-  await page.uncheck('#glass');
-  assert.equal(await alpha(page, '.pane', 1), 1);
-  assert.ok(Math.abs((await alpha(page, '.pane', 2)) - 0.8) < 0.02);
-  assert.equal(await bodyHas(page, 'glass'), false);
-  assert.equal(await bodyHas(page, 'backdrop'), true, 'backdrop stays while a pane is glass');
-  assert.equal(await alpha(page, 'header'), 1, 'header is window level, so solid again');
-  // the panel follows the focused pane
-  await headClick(page, 0);
-  assert.equal(await page.locator('#pane-mode button.on').innerText(), 'Solid');
-  assert.equal(await page.locator('#pane-glass').isVisible(), false);
-  await headClick(page, 2);
-  assert.equal(await page.locator('#pane-mode button.on').innerText(), 'Glass');
-  assert.equal(await page.locator('#pane-opacity').inputValue(), '80');
-});
-
-t('a pane with its own glass keeps working with no window glass, and going back to Window removes the backdrop', async (page) => {
-  await openPanel(page);
-  await setMode(page, 'glass');
-  assert.equal(await bodyHas(page, 'backdrop'), true);
-  assert.equal(await bodyHas(page, 'glass'), false);
-  assert.ok((await alpha(page, '.pane')) < 1);
-  await setMode(page, 'window');
-  assert.equal(await bodyHas(page, 'backdrop'), false);
-  assert.equal(await alpha(page, '.pane'), 1);
-});
-
-t('the pane header button opens the panel for that pane', async (page) => {
-  await splitRight(page);
-  await page.locator('.pane').nth(1).locator('.pane-fx').click();
-  assert.equal(await panelOpen(page), true);
-  assert.equal(await page.evaluate(() => window.__brick.app.panes().indexOf(window.__brick.app.focused)), 1);
-  await setMode(page, 'solid');
-  assert.equal(await page.evaluate(() => window.__brick.app.panes().map((s) => s.fx.mode).join()), 'window,solid');
-});
-
-t('new panes follow the window setting; a moved pane keeps its own', async (page) => {
-  await openPanel(page);
-  await page.check('#glass'); await setRange(page, '#glass-opacity', 35);
-  await page.click('#split-right'); await page.waitForFunction(() => window.__brick.app.panes().length === 2); await ready(page);
-  assert.ok(Math.abs((await alpha(page, '.pane', 1)) - 0.35) < 0.02, 'a new pane is glass like the window');
-  await setMode(page, 'solid');
+t('a pane that moves to another tab keeps its own look, and otherwise takes the new tab look', async (page) => {
+  await splitRight(page); await openPanel(page); await moveAside(page);
+  await headClick(page, 1); await scopeTo(page, 'pane'); await bg(page, 'blend');
   await page.click('#ap-close');
-  await page.locator('.pane').nth(1).locator('.pane-pop').click();   // pop it out into its own tab
+  await page.locator('.pane').nth(1).locator('.pane-pop').click();
   await page.waitForFunction(() => window.__brick.app.tabs.length === 2);
-  assert.equal(await page.evaluate(() => window.__brick.app.focused.fx.mode), 'solid');
-  assert.equal(await alpha(page, '.tab-content:not(.hidden) .pane'), 1);
+  assert.match(await page.locator('.tab-content:not(.hidden) .pane').evaluate((el) => el.style.getPropertyValue('--layer')), /radial/, 'own look moved with it');
 });
 
-t('terminal text stays readable: no opaque layer inside a terminal in glass mode', async (page) => {
+t('terminal text stays readable: no opaque layer inside a terminal over a picture', async (page) => {
   await openPanel(page);
-  await page.check('#glass'); await setRange(page, '#glass-opacity', 30);
+  await bg(page, 'blend'); await setRange(page, '#opacity', 30);
   await page.locator('.input').first().click();
   await page.keyboard.type('echo glass-ok'); await page.keyboard.press('Enter');
   await page.waitForFunction(() => /glass-ok/.test([...document.querySelectorAll('.block')].pop()?.innerText || ''));
@@ -166,60 +217,16 @@ t('terminal text stays readable: no opaque layer inside a terminal in glass mode
   assert.deepEqual(opaque, []);
 });
 
-t('window settings survive a reload', async (page) => {
+t('the tab look survives a reload (the panel itself starts closed)', async (page) => {
   await openPanel(page);
-  await page.check('#glass'); await setRange(page, '#glass-opacity', 55); await setRange(page, '#glass-blur', 7);
+  await bg(page, 'blend'); await setColour(page, 1, '#00ff00'); await setRange(page, '#opacity', 55); await setRange(page, '#blur', 7);
   await page.reload(); await ready(page);
-  assert.equal(await bodyHas(page, 'glass'), true);
-  assert.equal(await panelOpen(page), false, 'the panel itself starts closed');
+  assert.equal(await panelOpen(page), false);
+  assert.ok(near(await tint(page), 0.55));
   await openPanel(page);
-  assert.equal(await page.locator('#glass-opacity').inputValue(), '55');
-  assert.equal(await page.locator('#glass-blur').inputValue(), '7');
-});
-
-const backdrop = (page) => page.evaluate(() => document.body.style.getPropertyValue('--bd'));
-t('Desktop button: counts down, then uses the server capture as the backdrop; Reset restores the gradient', async (page) => {
-  await openPanel(page);
-  await page.evaluate(() => { window.__brick.captureDelay = 1; });
-  assert.equal(await backdrop(page), '');
-  await page.click('#bd-capture');
-  assert.match(await page.locator('#bd-capture').innerText(), /Hide this window/);
-  await page.waitForFunction(() => document.body.style.getPropertyValue('--bd').includes('blob:'));
-  assert.match(await backdrop(page), /url\("blob:.*"\) center \/ cover no-repeat/);
-  assert.equal(await page.locator('#bd-capture').innerText(), 'Desktop');
-  assert.equal(await page.locator('#bd-reset').isVisible(), true);
-  const bytes = await page.evaluate(async () => { const u = document.body.style.getPropertyValue('--bd').match(/url\("(.*?)"\)/)[1]; return (await (await fetch(u)).arrayBuffer()).byteLength; });
-  assert.equal(bytes, JPEG.length);
-  await sleep(300);
-  await page.reload(); await ready(page);
-  await page.waitForFunction(() => document.body.style.getPropertyValue('--bd').includes('blob:'));   // persisted in IndexedDB
-  await openPanel(page);
-  await page.click('#bd-reset');
-  assert.equal(await backdrop(page), '');
-  assert.equal(await page.locator('#bd-reset').isVisible(), false);
-  await sleep(300);
-  await page.reload(); await ready(page); await sleep(300);
-  assert.equal(await backdrop(page), '', 'reset is remembered too');
-});
-
-t('Image button: a chosen file becomes the backdrop', async (page) => {
-  await openPanel(page);
-  await page.locator('#bd-input').setInputFiles({ name: 'wall.jpg', mimeType: 'image/jpeg', buffer: JPEG });
-  await page.waitForFunction(() => document.body.style.getPropertyValue('--bd').includes('blob:'));
-  assert.equal(await page.locator('#bd-reset').isVisible(), true);
-});
-
-t('a failed capture shows the server message and leaves the backdrop alone', async (page) => {
-  await openPanel(page);
-  await page.route('**/capture*', (route) => route.fulfill({ status: 500, body: 'Capture failed. Allow Screen Recording' }));
-  await page.evaluate(() => { window.__brick.captureDelay = 0; });
-  const dialog = page.waitForEvent('dialog');
-  await page.click('#bd-capture');
-  const d = await dialog;
-  assert.match(d.message(), /Screen Recording/);
-  await d.dismiss();
-  assert.equal(await backdrop(page), '');
-  assert.equal(await page.locator('#bd-capture').isEnabled(), true);
+  assert.equal(await page.locator('#bg-kind button.on').innerText(), 'Blend');
+  assert.equal(await page.locator('#blur').inputValue(), '7');
+  assert.equal(await page.locator('#colors input').nth(1).inputValue(), '#00ff00');
 });
 
 t('the panel can be dragged by its title and stays where it was put', async (page) => {

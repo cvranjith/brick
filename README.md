@@ -6,7 +6,7 @@ A tiny block-based terminal in the browser. Node backend (a real zsh on a pty vi
 ```
 npm install
 npm start          # prints http://127.0.0.1:4477/?t=<token>
-npm test           # 60 tests: protocol (real zsh), UI, layout, drag and drop, appearance/glass, capture endpoint (headless Chrome)
+npm test           # 71 tests: protocol (real zsh), UI, layout, drag and drop, appearance, tab bar, capture endpoint (headless Chrome)
 ```
 
 Needs Node 22+, zsh, and (for the UI tests) Google Chrome.
@@ -23,16 +23,19 @@ closes that pane; closing the last tab (or `exit` in the last pane) opens a fres
 | Close pane (or tab if it is the last pane) | `×` on the pane | Alt+Shift+W |
 | Previous / next pane | click a pane | Alt+Shift+[ / Alt+Shift+] |
 | Go to tab 1-9 | click the tab | Alt+Shift+1..9 |
-| Reorder tabs | drag a tab left or right | |
+| Reorder tabs | drag a tab along the bar (left/right, or up/down in a side bar) | |
 | Move a pane | drag its title bar onto the edge of another pane (re-splits there) or its middle (swaps) | |
 | Pane into a new tab | drag its title bar to the empty part of the tab bar, or the `⇱` button | |
 | Pane into another tab | drag its title bar onto that tab (hold over a tab for 0.6 s to open it and pick the exact spot) | |
 | Cancel a drag | Esc | |
-| Appearance panel (floating, draggable, closes with `×`, Esc or the button) | `Appearance` in the header, or `◐` on a pane | |
-| Window glass on/off | `Glass` in the panel | Alt+Shift+G |
-| Window opacity and blur | sliders in the panel | |
-| Look of one pane | `This pane` in the panel: `Window` (follow the window, the default), `Solid` (always opaque) or `Glass` (its own opacity and blur) | |
-| Backdrop behind the glass | `Desktop` (a picture of your screen, taken after a 5 s countdown so you can hide the browser) or `Image` (a file); `Reset` restores the gradient | |
+| Appearance panel (floating, draggable, closes with `×`, Esc or the button) | `Appearance` in the header | |
+| What the panel changes | `Whole tab` (every pane in this tab) or `Focused pane` (only that pane; `Follow tab` undoes it) | |
+| Background | `Desktop` (your wallpaper, fetched automatically, no hiding needed), `Image` (a file), `Capture` (a screenshot of your screen taken after a 5 s countdown), `Solid` (one colour) or `Blend` (three colours) | Alt+Shift+G flips plain and picture look |
+| Opacity and blur | one slider each | |
+| Tab bar position | `Tabs` in the panel: `Top`, `Left` or `Right` | |
+| Collapse a side tab bar | `«`/`»` button on the bar, or `Collapse` in the panel (shows initials only) | |
+| Dock-style magnify | move the pointer along the tab bar | |
+| Peek at a tab | rest the pointer on another tab for about a second; click the preview to open it, Esc or move away to dismiss | |
 
 Shortcuts use Alt+Shift so zsh's own Alt bindings (Alt+d, Alt+t...) keep working. Full-screen programs
 (`vim`, `less`) cover only their own pane.

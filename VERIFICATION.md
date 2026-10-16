@@ -1,6 +1,6 @@
 # Brick verification
 
-Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 60 tests, all passing at time of writing (10 protocol, 11 UI, 13 tabs/splits, 9 drag and drop, 14 appearance, 3 capture endpoint).
+Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 71 tests, all passing at time of writing (10 protocol, 11 UI, 13 splits, 9 drag and drop, 15 appearance, 4 capture endpoint, 9 tab bar).
 
 | Scenario | Protocol test (real zsh, no browser) | UI test (headless Chrome) |
 |---|---|---|
@@ -53,10 +53,14 @@ prompt. Resetting through the write queue (`ESC c`) fixed it. This bug existed b
 - Duration is measured in the browser, so it includes WebSocket latency. Not tested with a backgrounded tab.
 - ConPTY/Windows, SSH and subshells: out of scope.
 
-## Appearance and glass
-- Everything lives in a floating Appearance panel (no permanent controls in the header). It does not dim the page, so changes can be watched live; it is draggable by its title and closes with `×`, Esc (not forwarded to the shell) or the header button. Pane-level look: `Window` (default, follows the window), `Solid`, or `Glass` with its own opacity/blur; the backdrop picture is shown whenever window glass is on or any pane is glass. Per-pane looks are not saved across reloads (panes are new shells then); the window settings and backdrop are.
-- A browser page cannot see through to the desktop live, so "glass" means translucent, blurred panels over a backdrop picture: the built-in gradient, a one-off capture of the desktop, or an image file. The picture is static; it does not follow windows moving behind Brick.
-- `Desktop` asks the server to run macOS `screencapture`. The first time, macOS asks to allow Screen Recording for the app running the server (Terminal etc.); restart that app after allowing. The capture shows whatever is on screen, so Brick counts down 5 s for you to hide the browser (Cmd+H); capturing while Brick is in front just gives a picture of Brick.
-- Privacy: `POST /capture` needs the session token and a same-origin request (checked, with tests); the image is returned in the response and the server never keeps it (the temp file is deleted). The page stores the picture in the browser's IndexedDB so it survives reloads; `Reset` deletes it.
-- Blur uses `backdrop-filter` on the header and panes only (children sit inside the pane); very low opacity over a busy picture can reduce text contrast. Opacity is limited to 15-100%.
-- Tested by computed styles, a check that no terminal element paints an opaque background, the capture endpoint's access rules and a real `screencapture` run (JPEG returned, no temp file left). The browser flow uses an injected stand-in image so tests never photograph the real screen. Visual check: `docs/glass.png`.
+## Appearance
+- One floating Appearance panel (no permanent controls in the header; draggable by its title, closes with `×`, Esc or the header button). It edits either the whole tab or the focused pane (`Follow tab` hands a pane back). Each tab has its own look; new tabs start with the look last chosen for a tab (saved in the browser). A pane's own look is not saved across reloads (panes are new shells then).
+- Backgrounds: `Desktop`, `Image`, `Capture`, `Solid` (colour), `Blend` (three colours). One opacity slider (15-100%) and one blur slider. Each pane is painted as a background layer (blurred, fixed to the window so neighbouring panes show one picture) under a tint at the chosen opacity; opacity over a picture lets it show through, and choosing a picture while opaque drops opacity to 60%. Blur does nothing for `Solid`, so it is disabled there.
+- A browser page cannot see through to the desktop live, so everything is a still picture. `Desktop` is the wallpaper only, fetched by a small ScreenCaptureKit helper (`tools/wallpaper.swift`, compiled once into `~/.brick/bin` with `swiftc`, needs the Xcode command line tools) that captures only the layers below app windows, so nothing has to be hidden. It is refreshed each time Brick starts, so it follows wallpaper changes. `Capture` is `screencapture` of everything visible, only on a button press, after a 5 s countdown; Brick itself will be in the picture unless you hide it.
+- Both need Screen Recording permission for the app running the server (restart it after allowing). Privacy: `POST /capture?kind=wallpaper|screen` needs the session token and a same-origin request (checked, with tests; unknown kinds get 400); the image is returned in the response and the server never keeps it (temp file deleted). The page keeps the three pictures in the browser's IndexedDB so they survive reloads.
+- Tested by computed styles and layer variables, a check that no terminal element paints an opaque background, the capture endpoint's access rules, and a real run of the wallpaper helper (valid JPEG without any windows in it; checked on this Mac only). The browser flow uses an injected stand-in image so tests never photograph the real screen.
+
+## Tab bar
+- Top, left or right (`Tabs` in the panel); a side bar collapses to a rail of initials; position and collapse are remembered. Terminals refit when the bar moves. Reordering and "drop a pane on empty bar space" work along either axis.
+- Dock-style magnify: tabs grow with a cosine falloff by distance from the pointer (up to 1.25x on top, 1.12x in a side bar, 1.5x collapsed) and reset when the pointer leaves or a drag starts.
+- Peek: resting on an inactive tab for about 1.2 s (250 ms when moving to the next tab while one is open) shows a scaled copy of that tab next to the bar, refreshed every second, scrolled to the latest output. It is a snapshot copy of the DOM, not a second live terminal, and is inert; click it to open the tab, Esc or moving away dismisses it. Not shown for the active tab or during a drag.
