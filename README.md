@@ -6,10 +6,12 @@ A tiny block-based terminal in the browser. Node backend (a real zsh on a pty vi
 ```
 npm install
 npm start          # prints http://127.0.0.1:4477/?t=<token>
-npm test           # 71 tests: protocol (real zsh), UI, layout, drag and drop, appearance, tab bar, capture endpoint (headless Chrome)
+npm test           # 114 tests: protocol (real zsh), UI, layout, drag and drop, appearance, tab bar, Files view and its API, capture endpoint (headless Chrome)
 ```
 
 Needs Node 22+, zsh, and (for the UI tests) Google Chrome.
+
+Third-party code served to the page: xterm.js (terminal), highlight.js (syntax colours, BSD-3), marked (markdown, MIT) and DOMPurify (sanitising rendered markdown, MPL-2.0 or Apache-2.0), all installed from npm and served locally, never from a CDN.
 
 ## Tabs and splits
 Every pane is its own shell (own WebSocket, pty, session id, working directory). A tab holds a tree of panes;
@@ -35,6 +37,16 @@ closes that pane; closing the last tab (or `exit` in the last pane) opens a fres
 | Tab bar position | `Tabs` in the panel: `Top`, `Left` or `Right` | |
 | Collapse a side tab bar | `«`/`»` button on the bar, or `Collapse` in the panel (shows initials only) | |
 | Dock-style magnify | move the pointer along the tab bar | |
+| Files view for a pane | `▤` in the pane header (`>_` to return); every pane chooses for itself, the shell keeps running underneath | Alt+Shift+F |
+| Browse | folders expand with `▸` (or →/←), double-click or Enter opens a folder, `↑`/Backspace goes up, `⌂` returns to the terminal's folder, the path box takes any path (`~` works) | |
+| Sort | click Name, Date Modified, Size or Kind; click again to reverse (folders stay on top) | |
+| Search | box under the path (searches as you type after a short pause; `Live` turns that off and then Enter or `Search` runs it; emptying the box shows all files again): `Names` (`*` and `?` work) or `Text` (grep); `Subfolders` for recursive; `Aa` match case; `.*` regex; `Only files: *.js, *.md` filter; `Hidden` includes dot folders and node_modules | Cmd/Ctrl+F |
+| Search results | text hits are grouped per file like Notepad++ ("Line 12: ..." with the match highlighted, Collapse/Expand all); click a hit to see the file at that line beside the list | |
+| Open a file | double-click it (or Enter): it opens beside the list in a viewer | |
+| Viewer | `Formatted` (syntax colours for JavaScript, Python, YAML, JSON, shell, HTML/XML, CSS, Go, Rust, C/C++, Java, SQL and more; Markdown rendered) or `Plain` (exactly the text); `Lines` and `Wrap` toggles; `Find in file` with ▲▼, `Aa` and a match counter; `↻` re-reads the file. Read-only. | Ctrl/Cmd+F finds in the file |
+| Detach a file | `⧉` in the viewer: its own window you can drag, resize and keep open while you browse other folders, tabs or panes | |
+| Minimize a window | `–` sends it to a tray at the bottom of Brick; click its chip to bring it back where it was, `×` on the chip closes it | |
+| `cd here` | runs `cd` in the pane's shell for the folder you are looking at and switches back | |
 | Peek at a tab | rest the pointer on another tab for about a second; click the preview to open it, Esc or move away to dismiss | |
 
 Shortcuts use Alt+Shift so zsh's own Alt bindings (Alt+d, Alt+t...) keep working. Full-screen programs
@@ -60,9 +72,10 @@ Not included: a custom prompt/editor (zsh's own line editor runs in a small inpu
 `--seconds N` stops after N seconds). In Brick it opens as a full-pane overlay and the block shows its run time.
 
 ## Files
+- `fsapi.js`  list/read/search for the Files view (`/fs/*`, same token, Host and Origin checks as the shell).
 - `server.js`  HTTP + WebSocket + pty, one shell per connection. Loopback only, random token, Host and Origin checks.
 - `shell/brick.zsh`  the hooks.
-- `public/`  `splitter.js` (shared with tests), `app.js` (`Session` = one pane/shell with its blocks; tab/split layout), `index.html`, `style.css`.
+- `public/`  `splitter.js` (shared with tests), `files.js` (the Files view), `docview.js` (file viewer and its floating windows), `app.js` (`Session` = one pane/shell with its blocks; tab/split layout), `index.html`, `style.css`.
 - `test/`  `protocol.test.js`, `ui.test.js`, `layout.test.js`. `docs/` screenshots from the UI test.
 
 ## Security

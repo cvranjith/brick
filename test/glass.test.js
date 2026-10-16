@@ -43,7 +43,7 @@ t('default: plain dark panes, panel closed, no controls on screen, no per-pane b
   assert.equal(await layer(page), 'none');
   assert.equal(await panelOpen(page), false);
   assert.equal(await page.locator('header input').count(), 0, 'no sliders permanently in the header');
-  assert.equal(await page.locator('.pane-head button').count(), 2, 'only pop-out and close in a pane header');
+  assert.equal(await page.locator('.pane-head button').count(), 3, 'only files, pop-out and close in a pane header');
   assert.equal(await page.locator('#appearance').innerText(), 'Appearance');
 });
 
@@ -103,8 +103,9 @@ t('Desktop: fetches the wallpaper by itself, no countdown and no hiding; it is r
   assert.deepEqual(kinds, ['wallpaper']);
   assert.match(await layer(page), /url\("blob:/);
   assert.equal(await page.locator('#bd-action').innerText(), 'Refresh');
-  const bytes = await page.evaluate(async () => (await (await fetch(document.querySelector('.pane').style.getPropertyValue('--layer').match(/url\("(.*?)"\)/)[1])).arrayBuffer()).byteLength);
-  assert.equal(bytes, JPEG.length);
+  // the served bytes decode as the stand-in picture (the page's policy forbids fetch() of blob: URLs, so load it as an image)
+  const size = await page.evaluate(() => new Promise((res) => { const i = new Image(); i.onload = () => res([i.naturalWidth, i.naturalHeight]); i.onerror = () => res(null); i.src = document.querySelector('.pane').style.getPropertyValue('--layer').match(/url\("(.*?)"\)/)[1]; }));
+  assert.deepEqual(size, [1, 1]);
   await sleep(300);
   kinds.length = 0;
   await page.reload(); await ready(page);

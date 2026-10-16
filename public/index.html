@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Brick</title>
 <link rel="stylesheet" href="/vendor/xterm.css">
+<link rel="stylesheet" href="/vendor/hljs.css">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -21,6 +22,7 @@
   <button id="split-down" title="Split down (Alt+Shift+S)">Split down</button>
 </header>
 <div id="main"><aside id="sidebar" hidden></aside><div id="stage"></div></div>
+<div id="tray" hidden></div>
 <div id="peek" hidden><div class="peek-title"></div><div class="peek-view"><div class="peek-scale"></div></div></div>
 <aside id="appearance-panel" role="dialog" aria-label="Appearance" hidden>
   <div class="ap-head"><strong>Appearance</strong><button id="ap-close" title="Close (Esc)">×</button></div>
@@ -55,6 +57,9 @@
 </aside>
 <script src="/vendor/xterm.js"></script>
 <script src="/vendor/addon-fit.js"></script>
+<script src="/vendor/highlight.js"></script>
+<script src="/vendor/marked.js"></script>
+<script src="/vendor/purify.js"></script>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

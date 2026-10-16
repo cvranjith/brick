@@ -1,4 +1,6 @@
 import { HookSplitter } from './splitter.js';
+import { FileBrowser, shq } from './files.js';
+const saveLast = (v) => { try { localStorage.setItem('brick.last', JSON.stringify(v)); } catch {} };
 
 const Terminal = window.Terminal;
 const FitAddon = window.FitAddon.FitAddon;
@@ -8,9 +10,10 @@ const MAX_ROWS = 2000;   // taller output scrolls inside the block
 const INPUT_ROWS = 6;
 const token = new URLSearchParams(location.search).get('t');
 const $ = (id) => document.getElementById(id);
+const api = (name, body, signal) => fetch(`/fs/${name}?t=${token}`, { method: 'POST', body: JSON.stringify(body), signal });
 
 // ---- shortcuts: Alt+Shift+<key>, chosen so zsh's own Alt bindings (Alt+d, Alt+t...) keep working ----
-const KEYS = { KeyT: 'newTab', KeyW: 'closePane', KeyD: 'splitRight', KeyS: 'splitDown', BracketLeft: 'prevPane', BracketRight: 'nextPane', KeyG: 'glass' };
+const KEYS = { KeyT: 'newTab', KeyW: 'closePane', KeyD: 'splitRight', KeyS: 'splitDown', BracketLeft: 'prevPane', BracketRight: 'nextPane', KeyG: 'glass', KeyF: 'files' };
 function shortcutFor(ev) {
   if (!(ev.altKey && ev.shiftKey) || ev.ctrlKey || ev.metaKey) return null;
   return /^Digit[1-9]$/.test(ev.code) ? ev.code : KEYS[ev.code] || null;
@@ -18,7 +21,7 @@ function shortcutFor(ev) {
 function runShortcut(name) {
   if (name.startsWith('Digit')) return app.switchTo(app.tabs[Number(name.slice(5)) - 1]);
   ({ newTab: () => app.newTab(), closePane: () => app.closePane(app.focused), splitRight: () => app.split('h'),
-    splitDown: () => app.split('v'), prevPane: () => app.cyclePane(-1), nextPane: () => app.cyclePane(1), glass: () => toggleGlass() })[name]();
+    splitDown: () => app.split('v'), prevPane: () => app.cyclePane(-1), nextPane: () => app.cyclePane(1), glass: () => toggleGlass(), files: () => app.focused?.toggleFiles() })[name]();
 }
 function guardKeys(term) {   // keep shortcut keys away from the shell
   term.attachCustomKeyEventHandler((ev) => {
@@ -55,9 +58,10 @@ class Session {
     this.el.className = 'pane';
     this.el.innerHTML = '<div class="pane-bg"></div><div class="pane-tint"></div>' +
       '<div class="pane-head"><span class="pane-cwd"></span><span class="pane-state"></span>' +
+      '<button class="pane-files" title="Files view (Alt+Shift+F)">▤</button>' +
       '<button class="pane-pop" title="Move to a new tab">⇱</button>' +
       '<button class="pane-close" title="Close pane (Alt+Shift+W)">×</button></div>' +
-      '<main class="blocks"></main><footer><div class="input"></div></footer>';
+      '<div class="files" hidden></div><main class="blocks"></main><footer><div class="input"></div></footer>';
     this.blocksEl = this.el.querySelector('.blocks');
     this.cwd = '';
     this.mode = 'prompt';   // 'prompt' | 'running'
@@ -68,6 +72,8 @@ class Session {
     this.el._session = this;
     this.el.addEventListener('mousedown', () => app.focus(this));
     this.look = null;   // null: follows its tab's look; otherwise this pane's own
+    this.view = 'term';   // 'term' (blocks and input) or 'files' (Finder-style browser); the shell keeps running underneath
+    this.el.querySelector('.pane-files').addEventListener('click', (e) => { e.stopPropagation(); app.focus(this); this.toggleFiles(); });
     this.el.querySelector('.pane-pop').addEventListener('click', (e) => { e.stopPropagation(); app.popOut(this); });
     this.el.querySelector('.pane-head').addEventListener('mousedown', (e) => { if (e.button === 0 && !e.target.closest('button')) dragPane(e, this); });
     this.el.querySelector('.pane-close').addEventListener('click', (e) => { e.stopPropagation(); app.closePane(this); });
@@ -117,7 +123,24 @@ class Session {
     else this.sendSize(this.inputTerm.rows);
   }
   target() { return this.mode === 'running' && this.active ? this.active.term : this.inputTerm; }
-  focusTerm() { this.target()?.focus(); }   // no-op until start() has created the terminal
+  focusTerm() { if (this.view === 'files') this.fb?.focus(); else this.target()?.focus(); }
+  toggleFiles(startAt) {
+    const on = this.view !== 'files';
+    saveLast({ files: on, path: on ? (startAt || this.fb?.root || '') : '' });
+    this.view = on ? 'files' : 'term';
+    this.el.classList.toggle('files-mode', on);
+    this.el.querySelector('.files').hidden = !on;
+    this.el.querySelector('.pane-files').textContent = on ? '>_' : '▤';
+    this.el.querySelector('.pane-files').title = on ? 'Back to the terminal (Alt+Shift+F)' : 'Files view (Alt+Shift+F)';
+    if (on) {
+      this.fb ??= new FileBrowser(this.el.querySelector('.files'), {
+        api, getCwd: () => this.cwd, onNav: (dir) => saveLast({ files: true, path: dir }), close: () => this.toggleFiles(),
+        cdHere: (dir) => { if (this.mode !== 'prompt') return; this.send({ type: 'input', data: `\x15cd ${shq(dir)}\r` }); this.toggleFiles(); },
+      });
+      this.fb.open(startAt || this.cwd || '~');
+      this.fb.focus();
+    } else { this.layout(); this.focusTerm(); }
+  }   // no-op until start() has created the terminal
 
   dispose() {
     this.ended = true;
@@ -125,6 +148,7 @@ class Session {
     try { this.ws?.close(); } catch {}
     for (const b of this.blocks) { clearInterval(b.timer); b.term.dispose(); }
     this.inputTerm?.dispose();
+    this.fb?.dispose();
     this.el.remove();
   }
 
@@ -809,3 +833,5 @@ document.addEventListener('keydown', (ev) => {   // shortcuts when focus is not 
 window.__brick = { app, leaves, captureDelay: 5, peekDelay: 1200, get session() { return app.focused; } };   // for tests
 applyTabs();
 app.newTab();
+// reopen the view we left: Files view on the folder it showed (the shell itself starts fresh)
+try { const last = JSON.parse(localStorage.getItem('brick.last') || 'null'); if (last?.files && typeof last.path === 'string' && last.path.startsWith('/')) app.focused?.toggleFiles(last.path); } catch {}
