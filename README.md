@@ -6,7 +6,7 @@ A tiny block-based terminal in the browser. Node backend (a real zsh on a pty vi
 ```
 npm install
 npm start          # prints http://127.0.0.1:4477/?t=<token>
-npm test           # 114 tests: protocol (real zsh), UI, layout, drag and drop, appearance, tab bar, Files view and its API, capture endpoint (headless Chrome)
+npm test           # 115 tests: protocol (real zsh), UI, layout, drag and drop, appearance, tab bar, Files view and its API, capture endpoint (headless Chrome)
 ```
 
 Needs Node 22+, zsh, and (for the UI tests) Google Chrome.

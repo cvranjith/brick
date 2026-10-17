@@ -1,6 +1,6 @@
 # Brick verification
 
-Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 114 tests, all passing at time of writing (10 protocol, 11 UI, 13 splits, 9 drag and drop, 15 appearance, 4 capture endpoint, 9 tab bar, 27 Files view and its API, 16 viewer).
+Run: `npm test` (Node 22.19, macOS, zsh 5.9, Chrome headless). 115 tests, all passing at time of writing (10 protocol, 11 UI, 13 splits, 9 drag and drop, 15 appearance, 4 capture endpoint, 9 tab bar, 27 Files view and its API, 16 viewer).
 
 | Scenario | Protocol test (real zsh, no browser) | UI test (headless Chrome) |
 |---|---|---|

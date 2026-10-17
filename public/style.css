@@ -92,7 +92,7 @@ body.tabs-right #sidebar.collapsed .tab.hot .tab-name { left: auto; right: calc(
 .block-body { padding: 4px 12px 6px; overflow-x: auto; }
 .block-body.empty { height: 0; padding: 0; overflow: hidden; visibility: hidden; }
 /* Full-screen programs cover their own pane (the pane is the containing block). */
-.block.overlay { position: absolute; inset: 0; z-index: 10; border-radius: 0; border: 0; display: flex; flex-direction: column; background: var(--pane-bg); }
+.block.overlay { position: absolute; inset: 0; z-index: 10; border-radius: 0; border: 0; display: flex; flex-direction: column; background: var(--layer-base, var(--bg)); }
 .block.overlay .block-body { flex: 1; padding: 0; min-height: 0; overflow: hidden; }
 .xterm .xterm-viewport { overflow-y: hidden !important; }
 .block.overlay .xterm-viewport { overflow-y: auto !important; }

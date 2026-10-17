@@ -71,6 +71,17 @@ t('one opacity and one blur slider, five backgrounds, two scopes', async (page) 
   assert.equal(await page.locator('#scope button.on').innerText(), 'Whole tab');
 });
 
+t('a full-screen program (vi, top) is opaque: translucent glass never shows earlier blocks through it', async (page) => {
+  await openPanel(page);
+  await bg(page, 'blend'); await setRange(page, '#opacity', 30);
+  assert.ok(near(await tint(page, 0), 0.3));
+  await page.keyboard.press('Escape');
+  await page.keyboard.type(`printf '\\033[?1049h\\033[Hfullscreen'; sleep 3; printf '\\033[?1049l'`); await page.keyboard.press('Enter');
+  await page.waitForSelector('.block.overlay');
+  const alpha = await page.evaluate(() => { const c = getComputedStyle(document.querySelector('.block.overlay')).backgroundColor; const m = c.match(/[\d.]+/g); return m.length > 3 ? +m[3] : 1; });
+  assert.equal(alpha, 1, 'the overlay background is solid');
+});
+
 t('Blend: three colours, opacity and blur apply to every pane; Solid: one colour; Reset', async (page) => {
   await splitRight(page); await openPanel(page);
   await bg(page, 'blend');
